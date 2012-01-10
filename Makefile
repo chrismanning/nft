@@ -3,8 +3,8 @@ FLAGS = -gc
 
 all: server client
 
-server:
+server: server.d
 	$(DMD) $(FLAGS) server.d
 
-client:
+client: client.d
 	$(DMD) $(FLAGS) client.d
