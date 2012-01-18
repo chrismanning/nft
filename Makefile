@@ -8,3 +8,6 @@ server: server.d
 
 client: client.d
 	$(DMD) $(FLAGS) client.d
+
+clean:
+	rm -f *.o client server
