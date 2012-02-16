@@ -3,11 +3,14 @@ FLAGS = -gc
 
 all: server client
 
-server: server.d
-	$(DMD) $(FLAGS) server.d
+server: server.o util.o
+	$(DMD) $(FLAGS) $^
 
-client: client.d
-	$(DMD) $(FLAGS) client.d
+client: client.o util.o
+	$(DMD) $(FLAGS) $^
+
+%.o: %.d
+	$(DMD) $(FLAGS) -c $<
 
 clean:
 	rm -f *.o client server

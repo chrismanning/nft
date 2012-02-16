@@ -1,24 +1,34 @@
-import std.stdio,std.socket,std.socketstream,std.getopt;
+import std.stdio,std.socket,std.getopt,
+        std.algorithm;
 
 ushort port = 4321;
-bool verbose, debugging;
+string server = "127.0.0.1";
+bool verbose;
+//enum EOF = "\u0000\u001A";
 
 int main(string[] args) {
-    getopt(args,"port|p",&port,
-                "verbose|v",&verbose,
-                "debugging|d",&debugging);
+    getopt(args,"server|s", &server,
+                "port|p",   &port,
+                "verbose|v",&verbose);
 
-    Socket sock = new TcpSocket;
-    sock.connect(new InternetAddress("127.0.0.1",4321));
-    while(sock.isAlive()) {
-        auto ss = new SocketStream(sock);
-        ss.writeLine("oh hai");
-        auto x = new ubyte[5];
-        ss.readBlock(x.ptr,x.length);
-        writeln(x);
-        break;
+    Socket control = new TcpSocket;
+    try control.connect(new InternetAddress(server,4321));
+    catch(SocketOSException e) {
+        writeln(e.msg);
     }
 
-    sock.close();
+    while(!stdin.eof()) {
+        write(" > ");
+        char[] buf;
+        stdin.readln(buf);
+        if(buf.length) {
+        }
+    }
+    writeln("bye");
+
+    control.close();
     return 0;
+}
+
+class Client {
 }
