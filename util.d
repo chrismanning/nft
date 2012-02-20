@@ -1,14 +1,16 @@
 module util;
 
-import std.file,std.stdio,std.string,std.array,std.algorithm,
-        std.exception;
-
-alias ubyte[] function(string[] args = []) cmd;
-cmd[string] commands;
-
-static this() {
-    commands["ls"] = &ls;
-}
+import std.file,
+std.stdio,
+std.string,
+std.array,
+std.algorithm,
+std.path,
+std.exception,
+std.container,
+std.socket,
+std.traits
+;
 
 enum MsgType : ubyte {
     CMD,
@@ -23,17 +25,129 @@ struct Message {
     }
 }
 
-ubyte[] ls(string[] args) {
-    string dir = ".";
-    if(args.length && args[0].length) dir = args[0];
+enum BUFSIZE = 8 * 1024;
 
-    ubyte[] tmp;
-    tmp ~= MsgType.REPLY;
-    foreach(string name; dirEntries(dir, SpanMode.shallow)) {
-        tmp ~= cast(ubyte[]) name ~ cast(ubyte) 0;
+template isMsgType(T) {
+    enum isMsgType = __traits(compiles, cast(const(void)[]) T);
+}
+
+abstract class NFT {
+public:
+    this() {
+        commands["ls"] = &ls;
+        commands["pwd"] = &pwd;
+        dir = ".";
+        status = true;
     }
 
-    return tmp;
+    @property {
+        string dir() {
+            return dir_;
+        }
+        void dir(string dir) {
+            dir_ = absolutePath(dir);
+        }
+    }
+
+    void attachControlSocket(Socket sock) {
+        control = sock;
+    }
+
+    void close() {
+        control.shutdown(SocketShutdown.BOTH);
+        control.close();
+    }
+
+    void success(Msg)() if(isMsgType!Msg) {
+        static if(is(Msg == Reply)) {
+            if(replyBuf.length)
+                replyBuf.removeBack();
+        }
+        else static if(is(Msg == Command)) {
+            if(cmdBuf.length)
+                cmdBuf.removeBack();
+        }
+    }
+
+    void send(Msg)(Msg msg) if(isMsgType!Msg) {
+        auto bytes = control.send(cast(const(void)[]) msg);
+        if(bytes == msg.length) {
+            success!Msg();
+            return;
+        }
+        else if(bytes == 0)
+            throw new Exception("Client has disconnected");
+        else if(bytes == Socket.ERROR)
+            throw new Exception("Network Error");
+        else
+            throw new Exception("Wrong amount of data received");
+    }
+
+    Msg receive(Msg)() if(isMsgType!Msg) {
+        //first 5 bytes should be size of data (4 bytes) + msg type (1 byte)
+        ubyte[5] buf;
+        auto bytes = control.receive(buf);
+        if(bytes == buf.length) {
+            if(buf[int.sizeof] != MsgType.CMD) throw new Exception("Wrong message type");
+            int msgSize = (cast(int[]) buf[0..int.sizeof])[0];
+            auto buffer = new ubyte[msgSize];
+            bytes = control.receive(buffer);
+            if(bytes != msgSize-1) goto some_error;
+            return Msg(buf[int.sizeof] ~ buffer);
+        } //else
+some_error:
+        if(bytes == 0) {
+            throw new Exception("Client has disconnected");
+        }
+        else if(bytes == Socket.ERROR) {
+            throw new Exception("Network Error");
+        }
+        else
+            throw new Exception("Wrong amount of data received");
+    }
+
+    auto remoteAddress() {
+        return control.remoteAddress();
+    }
+
+    bool status;
+
+protected:
+    Array!Command cmdBuf;
+    Array!Reply replyBuf;
+    alias bool delegate(string[] args ...) cmd;
+    cmd[string] commands;
+    Socket control;
+
+private:
+    bool ls(string[] args ...) {
+        auto x = replyBuf.length;
+        if(args.length) {
+            foreach(arg; args) {
+                writeln(arg);
+            }
+        }
+        ubyte[] tmp;
+        tmp ~= MsgType.REPLY;
+
+//         foreach(string name; dirEntries(args[0], SpanMode.shallow)) {
+//             tmp ~= cast(ubyte[]) name ~ cast(ubyte) 0;
+//         }
+        return replyBuf.length == x+1;;
+    }
+
+    bool pwd(string[] args ...) {
+        auto x = replyBuf.length;
+        replyBuf.insertBack(Reply(getcwd()));
+        return replyBuf.length == x+1;
+    }
+
+    bool cd(string args ...) {
+        ubyte[] tmp;
+        return true;
+    }
+
+    string dir_;
 }
 
 struct Command {
@@ -48,6 +162,7 @@ struct Command {
         else cmd = strip(input);
     }
     this(ubyte[] input) {
+        //if taking the raw input it should at least be the right type
         enforce(input[0] == MsgType.CMD,"Not a CMD");
         auto tmp = array(filter!(a => a.length > 0)(splitter(input[1..$],cast(ubyte)0)));
         if(tmp.length) {
@@ -58,6 +173,7 @@ struct Command {
         }
         else cmd = strip(cast(string)input);
     }
+
     @property int length() {
         return cast(int) (1 + cmd.length + 1 + reduce!("a + b.length")(0L,args) + args.length);
     }
@@ -75,8 +191,10 @@ struct Command {
             return tmp;
         }
     }
+
     string cmd;
     string[] args;
+    size_t seq;
 }
 
 struct Reply {
@@ -87,9 +205,11 @@ struct Reply {
     this(string input) {
         reply = cast(ubyte[])input;
     }
+
     @property int length() {
-        return cast(int)(reply.length + int.sizeof);
+        return cast(int)(int.sizeof + reply.length + 1);
     }
+
     T opCast(T)() {
         static if(is(T == const(void)[])) {
             void[] tmp;
@@ -99,8 +219,11 @@ struct Reply {
             return tmp;
         }
     }
+
     string[] splitData() {
         return cast(string[]) array(filter!(a => a.length > 0)(splitter(reply,cast(ubyte)0)));
     }
+
     ubyte[] reply;
+    size_t seq;
 }

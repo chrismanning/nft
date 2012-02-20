@@ -12,6 +12,7 @@ void main(string[] args) {
                 "verbose|v",&verbose);
 
     Socket control = new TcpSocket;
+    if(verbose) writefln("Connecting to server: %s:%d",server,port);
     try control.connect(new InternetAddress(server,port));
     catch(SocketOSException e) {
         stderr.writeln(e.msg);
@@ -30,26 +31,32 @@ void main(string[] args) {
             writeln(Command(wbuf[int.sizeof..int.sizeof+tmp]).cmd);
         }
 
+        string buf;
         while(!stdin.eof()) {
             write(" > ");
-            string buf;
-            stdin.readln(buf);
+            buf = strip(stdin.readln());
             if(buf.length) {
-                control.send(cast(const(void)[]) Command(strip(buf)));
-            }
-            //wait for reply
-            bytes = control.receive(wbuf);
-            if(bytes > int.sizeof) {
-                auto size = (cast(int[])wbuf)[0];
-                auto tmp = wbuf[int.sizeof..size];
-                auto r = Reply(tmp);
-                writeln(r.splitData());
+                if(verbose) writeln("Sending command to server...");
+                control.send(cast(const(void)[]) Command(buf));
+                if(buf == "break") break;
+                //wait for reply
+                if(verbose) writeln("Waiting for reply from server...");
+                bytes = control.receive(wbuf);
+                if(bytes > int.sizeof) {
+                    auto size = (cast(int[])wbuf)[0];
+                    auto tmp = wbuf[int.sizeof..size];
+                    auto r = Reply(tmp);
+                    writeln(r.splitData());
+                }
+                buf.length = 0;
             }
         }
+        writeln("exit");
+        control.send(cast(const(void)[]) Command("break"));
     }
     writeln("bye");
     control.close();
 }
 
-class Client {
+class Client : NFT {
 }

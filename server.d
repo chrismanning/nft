@@ -4,71 +4,70 @@ import util;
 ushort port = 4321;
 bool verbose;
 ubyte connections = 40;
+bool force;
 
 void main(string[] args) {
-    getopt(args,"port|p",&port,
-                "verbose|v",&verbose,
-                "connections|c",&connections);
+    getopt(args,"port|p", &port,
+                "verbose|v", &verbose,
+                "connections|c", &connections,
+                "force|f", &force
+          );
 
     Socket listener = new TcpSocket;
-    listener.bind(new InternetAddress(port));
+    try listener.bind(new InternetAddress(port));
+    catch(SocketOSException e) {
+        if(!force) {
+            stderr.writeln("ERROR: " ~ e.msg);
+            stderr.writeln("A server instance may already be running.");
+            stderr.writeln("To ignore this error, re-run with the -f or --force argument.");
+            listener.close();
+            return;
+        }
+        listener.setOption(SocketOptionLevel.SOCKET, SocketOption.REUSEADDR, true);
+    }
     listener.listen(10);
     auto ss = new SocketSet(connections + 1);
     Socket[] reads;
     Socket[] writes;
 
-    auto server = new Server;
-    if(verbose) writeln("Waiting for client to connect...");
-    auto control = listener.accept();
-    if(verbose) writefln("Connection from %s established", to!string(control.remoteAddress()));
-    //send welcome message
-    control.send(cast(const(void)[]) Command("WELCOME"));
-    while(server.status && control.isAlive()) {
-        ubyte[1024] buf;
-        //wait for command
-        if(verbose) writeln("Waiting for command...");
-        auto bytes = control.receive(buf);
-        if(bytes == Socket.ERROR) {
-            writeln("Error!");
-            break;
-        }
-        else if(bytes == 0) break;
-        else if(bytes > int.sizeof) {
-            auto size = (cast(int[])buf)[0];
-            auto tmp = buf[int.sizeof..int.sizeof+size];
-            if(tmp[0] == MsgType.CMD) {
-                auto reply = server.interpreterCommand(Command(tmp));
-                if(!server.status) break;
-                if(reply.length > int.sizeof) {
-                    bytes = control.send(cast(const(void)[]) reply);
-                    if(bytes == reply.length) {
-                        if(verbose) writeln("Successfully replied.");
-                    }
-                }
+    while(true) {
+        auto server = new Server;
+        if(verbose) writeln("Waiting for client to connect...");
+        server.attachControlSocket(listener.accept());
+        if(verbose) writefln("Connection from %s established", to!string(server.remoteAddress()));
+        //send welcome message
+        server.control.send(cast(const(void)[]) Command("WELCOME"));
+        while(server.status) {// && control.isAlive()) {
+            if(verbose) writeln("Waiting for command...");
+            auto cmd = server.receive!Command();
+            auto reply = server.interpreterCommand(cmd);
+            if(!server.status) break;
+            if(reply.length > int.sizeof+1) {
+                if(verbose) writeln("Sending reply...");
+                server.send(reply);
             }
         }
+        server.close();
     }
-    control.shutdown(SocketShutdown.BOTH);
-    control.close();
     listener.close();
 }
 
-class Server {
-    string pwd;
-    bool status;
-    this() {
-        pwd = ".";
-        status = true;
-    }
+class Server : NFT {
     Reply interpreterCommand(Command c) {
-        writeln(c.cmd);
         if(c.cmd == "break") {
             status = false;
+            return Reply("");
         }
         auto fp = c.cmd in commands;
         if(fp) {
-            return Reply((*fp)(c.args));
+            if(c.cmd == "ls") {
+                //return Reply((*fp)(c.args.length && c.args[0].length ? c.args : [dir]));
+            }
+            auto nargs = c.args.length;
+            if((*fp)(c.args)) {
+                return replyBuf.back();
+            }
         }
-        return Reply("Unknown Command");
+        return Reply("Unknown Command: " ~ c.cmd);
     }
 }
