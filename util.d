@@ -9,7 +9,8 @@ std.path,
 std.exception,
 std.container,
 std.socket,
-std.traits
+std.traits,
+std.concurrency
 ;
 
 enum MsgType : ubyte {
@@ -18,11 +19,9 @@ enum MsgType : ubyte {
     DATA,
 }
 
-struct Message {
-    MsgType msg;
-    this(MsgType msg) {
-        this.msg = msg;
-    }
+enum ReplyType : ubyte {
+    STRING,
+    ERROR,
 }
 
 enum BUFSIZE = 8 * 1024;
@@ -36,21 +35,16 @@ public:
     this() {
         commands["ls"] = &ls;
         commands["pwd"] = &pwd;
-        dir = ".";
+        commands["cd"] = &cd;
+        dir = getcwd();
         status = true;
-    }
-
-    @property {
-        string dir() {
-            return dir_;
-        }
-        void dir(string dir) {
-            dir_ = absolutePath(dir);
-        }
     }
 
     void attachControlSocket(Socket sock) {
         control = sock;
+    }
+    void attachControlSocket(shared(Socket) sock) {
+        control = cast(Socket)sock;
     }
 
     void close() {
@@ -92,10 +86,9 @@ public:
             int msgSize = (cast(int[]) buf[0..int.sizeof])[0];
             auto buffer = new ubyte[msgSize];
             bytes = control.receive(buffer);
-            if(bytes != msgSize-1) goto some_error;
-            return Msg(buf[int.sizeof] ~ buffer);
-        } //else
-some_error:
+            if(bytes == msgSize-1)
+                return Msg(buf[int.sizeof] ~ buffer);
+        }
         if(bytes == 0) {
             throw new Exception("Client has disconnected");
         }
@@ -127,27 +120,37 @@ private:
                 writeln(arg);
             }
         }
-        ubyte[] tmp;
-        tmp ~= MsgType.REPLY;
-
-//         foreach(string name; dirEntries(args[0], SpanMode.shallow)) {
-//             tmp ~= cast(ubyte[]) name ~ cast(ubyte) 0;
-//         }
-        return replyBuf.length == x+1;;
+        string tmp;
+        foreach(string name; dirEntries(dir, SpanMode.shallow)) {
+            tmp ~= relativePath(name) ~ 0;
+        }
+        replyBuf.insertBack(Reply(tmp[0..$-1]));
+        return replyBuf.length == x+1;
     }
 
     bool pwd(string[] args ...) {
         auto x = replyBuf.length;
-        replyBuf.insertBack(Reply(getcwd()));
+        replyBuf.insertBack(Reply(absolutePath(dir)));
         return replyBuf.length == x+1;
     }
 
-    bool cd(string args ...) {
-        ubyte[] tmp;
-        return true;
+    bool cd(string[] args ...) {
+        auto x = replyBuf.length;
+        if(args.length) {
+            auto str = buildNormalizedPath(absolutePath(args[0], dir));
+            if(str.isDir) {
+                dir = str;
+                replyBuf.insertBack(Reply(str));
+            }
+            else
+                replyBuf.insertBack(Reply(absolutePath(dir)));
+        }
+        else
+            dir = getcwd();
+        return replyBuf.length == x+1;
     }
 
-    string dir_;
+    string dir;
 }
 
 struct Command {
@@ -204,6 +207,12 @@ struct Reply {
     }
     this(string input) {
         reply = cast(ubyte[])input;
+    }
+    this(string[] input) {
+        foreach(str; input) {
+            reply ~= cast(ubyte[]) str ~ 0;
+        }
+        reply = reply[0..$-1];
     }
 
     @property int length() {

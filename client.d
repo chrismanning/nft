@@ -5,11 +5,14 @@ import util;
 ushort port = 4321;
 string server = "127.0.0.1";
 bool verbose;
+uint retries = 3;
 
 void main(string[] args) {
     getopt(args,"server|s", &server,
                 "port|p",   &port,
-                "verbose|v",&verbose);
+                "verbose|v",&verbose,
+                "retries|r", &retries
+          );
 
     Socket control = new TcpSocket;
     if(verbose) writefln("Connecting to server: %s:%d",server,port);
@@ -36,9 +39,9 @@ void main(string[] args) {
             write(" > ");
             buf = strip(stdin.readln());
             if(buf.length) {
+                if(buf == "break") break;
                 if(verbose) writeln("Sending command to server...");
                 control.send(cast(const(void)[]) Command(buf));
-                if(buf == "break") break;
                 //wait for reply
                 if(verbose) writeln("Waiting for reply from server...");
                 bytes = control.receive(wbuf);
@@ -52,7 +55,6 @@ void main(string[] args) {
             }
         }
         writeln("exit");
-        control.send(cast(const(void)[]) Command("break"));
     }
     writeln("bye");
     control.close();
