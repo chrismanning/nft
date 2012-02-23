@@ -122,7 +122,7 @@ private:
         }
         string tmp;
         foreach(string name; dirEntries(dir, SpanMode.shallow)) {
-            tmp ~= relativePath(name) ~ 0;
+            tmp ~= relativePath(name,dir) ~ 0;
         }
         replyBuf.insertBack(Reply(tmp[0..$-1]));
         return replyBuf.length == x+1;
