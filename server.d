@@ -12,102 +12,128 @@ core.thread
 import util;
 
 ushort port = 4321;
+ushort dataPort = 4320;
 bool verbose_;
 shared bool verbose;
 ubyte connections = 40;
 uint retries = 3;
-shared run = true;
 
 void main(string[] args) {
-    getopt(args,"port|p", &port,
-                "verbose|v", &verbose_,
-                "connections|c", &connections,
-                "retries|r", &retries
-          );
+    try {
+        getopt(args,"port|p", &port,
+                    "data-port|dp", &dataPort,
+                    "verbose|v", &verbose_,
+                    "connections|c", &connections,
+                    "retries|r", &retries
+            );
+    }
+    catch(ConvException e) {
+        stderr.writeln("Incorrect parameter: " ~ e.msg);
+    }
+    catch(Exception e) {
+        stderr.writeln(e.msg);
+    }
+
     verbose = verbose_;
 
-    auto ss = new SocketSet(connections + 1);
-    Socket[] reads;
-    Socket[] writes;
-
-    auto listenerThread = spawn(&listen);
+    auto listenerThread = spawnLinked(&listen, thisTid);
 
     while(!stdin.eof()) {
+        if(receiveTimeout(dur!"msecs"(100), (LinkTerminated e) {} )) {
+            return;
+        }
         getchar();
     }
 
     writeln("THE END...");
-    send(listenerThread, true);
 }
 
-void listen() {
+void listen(Tid mainThread) {
     Socket listener = new TcpSocket;
+
     //set listener non-blocking so that this thread can receive messages
     listener.blocking = false;
+
     //allow the server to be started instantly after being killed
     listener.setOption(SocketOptionLevel.SOCKET, SocketOption.REUSEADDR, true);
+
     try listener.bind(new InternetAddress(port));
     catch(SocketOSException e) {
         stderr.writeln("ERROR: " ~ e.msg);
         stderr.writeln("A server instance may already be running.");
+        //prioritySend(mainThread, e);
         listener.close();
         return;
     }
+
     listener.listen(10);
-    auto socksTid = spawn(&socksHandler);
+
+    auto socksTid = spawn(&socksHandler, thisTid);
 
     auto wait = "Waiting for client to connect...";
     if(verbose) writeln(wait);
-    while(true) {
-        try{
-            if(receiveTimeout(dur!"msecs"(100),(bool b) {})) break;
+    bool run = true;
+    while(run) {
+        try {
+            receiveTimeout(dur!"msecs"(100),
+                (LinkTerminated e) {run = false;},
+                (OwnerTerminated e) {run = false;}
+            );
             auto sock = cast(shared)listener.accept();
             if(verbose) writeln(wait);
-            send(socksTid, sock);
+            send(socksTid, thisTid, sock);
         }
-        catch(SocketAcceptException e) {
-        }
+        catch(SocketAcceptException e) {}
     }
     writeln("dieing");
     listener.close();
 }
 
-void socksHandler() {
+void socksHandler(Tid listener) {
     shared(Socket)[] socks;
+
+    bool run = true;
     while(run) {
         try receive(
-            (shared(Socket) sock) {
-                socks ~= sock;
-                spawn(&st, thisTid, sock);
-                if(verbose) writeln("Adding socket. No. clients: ", socks.length);
-            },
-            (bool end, shared(Socket) sock) {
-                foreach(i,s; socks) {
-                    if(s == sock) {
-                        socks = socks[0..i] ~ socks[i+1..$];
-                        break;
+            (Tid thread, shared(Socket) sock) {
+                if(thread == listener) {
+                    socks ~= sock;
+                    spawn(&clientHandler, thisTid, sock);
+                    if(verbose) writeln("Adding socket. No. clients: ", socks.length);
+                }
+                else {
+                    foreach(i,s; socks) {
+                        if(s == sock) {
+                            socks = socks[0..i] ~ socks[i+1..$];
+                            if(verbose) writeln("Removing socket. No. clients: ", socks.length);
+                            break;
+                        }
                     }
                 }
-                if(verbose) writeln("Removing socket. No. clients: ", socks.length);
+            },
+            (OwnerTerminated e) {
+                run = false;
             },
             (Variant any) {
             }
         );
-        catch(OwnerTerminated e) {
+        catch(Exception e) {
             writeln(e.msg);
+            break;
         }
     }
-    writeln("sock handler ending");
+    if(verbose) writeln("sock handler ending");
 }
 
-void st(Tid tid, shared(Socket) sock) {
+void clientHandler(Tid sockHand, shared(Socket) sock) {
     auto server = new Server;
     server.attachControlSocket(sock);
 
+    bool run = true;
     if(verbose) writefln("Connection from %s established", to!string(server.remoteAddress()));
     //send welcome message
     server.control.send(cast(const(void)[]) Command("WELCOME"));
-    while(server.status&& run) {// && control.isAlive()) {
+    while(server.status && run) {
         if(verbose) writeln("Waiting for command...");
         try {
             auto cmd = server.receive!Command();
@@ -125,7 +151,7 @@ void st(Tid tid, shared(Socket) sock) {
         }
     }
     server.close();
-    send(tid,true,sock);
+    send(sockHand, thisTid, sock);
     if(verbose) writeln("Thread ending");
 }
 

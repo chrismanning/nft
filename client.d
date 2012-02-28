@@ -3,14 +3,16 @@ import std.stdio,std.socket,std.getopt,
 import util;
 
 ushort port = 4321;
+ushort dataPort = 4320;
 string server = "127.0.0.1";
 bool verbose;
 uint retries = 3;
 
 void main(string[] args) {
     getopt(args,"server|s", &server,
-                "port|p",   &port,
-                "verbose|v",&verbose,
+                "port|p", &port,
+                "data-port|dp", &dataPort,
+                "verbose|v", &verbose,
                 "retries|r", &retries
           );
 
