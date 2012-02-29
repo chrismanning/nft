@@ -36,16 +36,13 @@ void main(string[] args) {
 
     verbose = verbose_;
 
-    auto listenerThread = spawnLinked(&listen, thisTid);
+    auto listenerThread = spawn(&listen, thisTid);
 
     while(!stdin.eof()) {
-        if(receiveTimeout(dur!"msecs"(100), (LinkTerminated e) {} )) {
-            return;
-        }
         getchar();
     }
 
-    writeln("THE END...");
+    if(verbose) writeln("Main thread ending...");
 }
 
 void listen(Tid mainThread) {
@@ -61,7 +58,6 @@ void listen(Tid mainThread) {
     catch(SocketOSException e) {
         stderr.writeln("ERROR: " ~ e.msg);
         stderr.writeln("A server instance may already be running.");
-        //prioritySend(mainThread, e);
         listener.close();
         return;
     }
@@ -76,7 +72,6 @@ void listen(Tid mainThread) {
     while(run) {
         try {
             receiveTimeout(dur!"msecs"(100),
-                (LinkTerminated e) {run = false;},
                 (OwnerTerminated e) {run = false;}
             );
             auto sock = cast(shared)listener.accept();
@@ -85,13 +80,12 @@ void listen(Tid mainThread) {
         }
         catch(SocketAcceptException e) {}
     }
-    writeln("dieing");
     listener.close();
+    if(verbose) writeln("Listener thread ending...");
 }
 
+shared(Socket)[] socks;
 void socksHandler(Tid listener) {
-    shared(Socket)[] socks;
-
     bool run = true;
     while(run) {
         try receive(
@@ -122,7 +116,7 @@ void socksHandler(Tid listener) {
             break;
         }
     }
-    if(verbose) writeln("sock handler ending");
+    if(verbose) writeln("Socket handler thread ending...");
 }
 
 void clientHandler(Tid sockHand, shared(Socket) sock) {
@@ -152,7 +146,7 @@ void clientHandler(Tid sockHand, shared(Socket) sock) {
     }
     server.close();
     send(sockHand, thisTid, sock);
-    if(verbose) writeln("Thread ending");
+    if(verbose) writeln("Client thread ending");
 }
 
 class Server : NFT {
