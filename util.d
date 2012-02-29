@@ -10,7 +10,8 @@ std.exception,
 std.container,
 std.socket,
 std.traits,
-std.concurrency
+std.concurrency,
+core.thread
 ;
 
 enum MsgType : ubyte {
@@ -27,7 +28,7 @@ enum ReplyType : ubyte {
 enum BUFSIZE = 8 * 1024;
 
 template isMsgType(T) {
-    enum isMsgType = __traits(compiles, cast(const(void)[]) T);
+    enum isMsgType = is(T == Command) || is(T == Reply);
 }
 
 abstract class NFT {
@@ -60,6 +61,28 @@ public:
         else static if(is(Msg == Command)) {
             if(cmdBuf.length)
                 cmdBuf.removeBack();
+        }
+    }
+
+    void openDataConnection(ushort dp) {
+        Socket s = new TcpSocket;
+        s.blocking = false;
+        s.setOption(SocketOptionLevel.SOCKET, SocketOption.REUSEADDR, true);
+
+        try s.bind(new InternetAddress(dp));
+        catch(SocketOSException e) {
+            s.close();
+            return;
+        }
+
+        while(true) {
+            try {
+                dataSock = s.accept();
+                break;
+            }
+            catch(SocketAcceptException e) {
+                Thread.sleep(dur!"msecs"(100));
+            }
         }
     }
 
@@ -111,6 +134,7 @@ protected:
     alias bool delegate(string[] args ...) cmd;
     cmd[string] commands;
     Socket control;
+    Socket dataSock;
 
 private:
     bool ls(string[] args ...) {
@@ -122,7 +146,7 @@ private:
         }
         string tmp;
         foreach(string name; dirEntries(dir, SpanMode.shallow)) {
-            tmp ~= relativePath(name,dir) ~ 0;
+            tmp ~= relativePath(name, dir) ~ 0;
         }
         replyBuf.insertBack(Reply(tmp[0..$-1]));
         return replyBuf.length == x+1;
