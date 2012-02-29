@@ -47,7 +47,16 @@ void main(string[] args) {
                 bytes = control.receive(wbuf);
                 if(bytes > int.sizeof) {
                     auto size = (cast(int[])wbuf)[0];
-                    auto tmp = wbuf[int.sizeof..size];
+                    ubyte[] tmp;
+                    if(bytes < size-int.sizeof) {
+                        tmp = wbuf[int.sizeof..bytes];
+                        auto x = new ubyte[size-int.sizeof];
+                        control.receive(x);
+                        tmp ~= x;
+                    }
+                    else {
+                        tmp = wbuf[int.sizeof..size];
+                    }
                     auto r = Reply(tmp);
                     writeln(r.splitData());
                 }
