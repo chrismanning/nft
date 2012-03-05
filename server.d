@@ -100,7 +100,7 @@ void listen(Tid mainThread) {
 }
 
 void clientHandler(Tid sockHand, shared(Socket) sock) {
-    auto server = new Server;
+    auto server = new Server(dataPort);
     server.attachControlSocket(sock);
 
     bool run = true;
@@ -130,6 +130,9 @@ void clientHandler(Tid sockHand, shared(Socket) sock) {
 }
 
 class Server : NFT {
+    this(ushort dataPort) {
+        super(dataPort);
+    }
     Reply interpreterCommand(Command c) {
         if(c.cmd == "break") {
             status = false;

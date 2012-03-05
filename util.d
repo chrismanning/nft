@@ -33,11 +33,14 @@ template isMsgType(T) {
 
 abstract class NFT {
 public:
-    this() {
+    this(ushort dataPort) {
         commands["ls"] = &ls;
         commands["pwd"] = &pwd;
         commands["cd"] = &cd;
+        commands["download"] = &download;
+        commands["upload"] = &upload;
         dir = getcwd();
+        this.dataPort = dataPort;
         status = true;
     }
 
@@ -64,26 +67,29 @@ public:
         }
     }
 
-    void openDataConnection(ushort dp) {
+    bool openDataConnection() {
         Socket s = new TcpSocket;
-        s.blocking = false;
         s.setOption(SocketOptionLevel.SOCKET, SocketOption.REUSEADDR, true);
+        s.setOption(SocketOptionLevel.SOCKET, SocketOption.RCVTIMEO, dur!"seconds"(3));
 
-        try s.bind(new InternetAddress(dp));
+        try s.bind(new InternetAddress(dataPort));
         catch(SocketOSException e) {
             s.close();
-            return;
+            return false;
         }
 
-        while(true) {
-            try {
-                dataSock = s.accept();
-                break;
-            }
-            catch(SocketAcceptException e) {
-                Thread.sleep(dur!"msecs"(100));
-            }
+        s.listen(1);
+
+        try {
+            dataSock = s.accept();
         }
+        catch(SocketAcceptException e) {
+            stderr.writeln(e.msg);
+            s.close();
+            return false;
+        }
+        s.close();
+        return true;
     }
 
     void send(Msg)(Msg msg) if(isMsgType!Msg) {
@@ -135,6 +141,7 @@ protected:
     cmd[string] commands;
     Socket control;
     Socket dataSock;
+    ushort dataPort;
 
 private:
     bool ls(string[] args ...) {
@@ -171,6 +178,22 @@ private:
         }
         else
             dir = getcwd();
+        return replyBuf.length == x+1;
+    }
+
+    bool download(string[] args ...) {
+        auto x = replyBuf.length;
+        if(args.length) {
+            if(!dataSock) {
+                if(this.openDataConnection()) {
+                }
+            }
+        }
+        return replyBuf.length == x+1;
+    }
+
+    bool upload(string[] args ...) {
+        auto x = replyBuf.length;
         return replyBuf.length == x+1;
     }
 

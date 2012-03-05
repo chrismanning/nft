@@ -72,4 +72,7 @@ void main(string[] args) {
 }
 
 class Client : NFT {
+    this(ushort dataPort) {
+        super(dataPort);
+    }
 }
