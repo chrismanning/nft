@@ -45,6 +45,7 @@ void main(string[] args) {
     if(verbose) writeln("Main thread ending...");
 }
 
+shared(Socket)[] socks;
 void listen(Tid mainThread) {
     Socket listener = new TcpSocket;
 
@@ -64,59 +65,38 @@ void listen(Tid mainThread) {
 
     listener.listen(10);
 
-    auto socksTid = spawn(&socksHandler, thisTid);
-
     auto wait = "Waiting for client to connect...";
     if(verbose) writeln(wait);
     bool run = true;
     while(run) {
         try {
-            receiveTimeout(dur!"msecs"(100),
-                (OwnerTerminated e) {run = false;}
+            receiveTimeout(dur!"msecs"(100), //this blocks--stopping accept from using too many cycles
+                (Tid thread, shared(Socket) sock) {
+                    if(thread != mainThread) {
+                        foreach(i,s; socks) {
+                            if(s == sock) {
+                                socks = socks[0..i] ~ socks[i+1..$];
+                                if(verbose) writeln("Removing socket. No. clients: ", socks.length);
+                                break;
+                            }
+                        }
+                    }
+                },
+                (OwnerTerminated e) {run = false;},
+                (Variant any) {}
             );
             auto sock = cast(shared)listener.accept();
-            if(verbose) writeln(wait);
-            send(socksTid, thisTid, sock);
+            socks ~= sock;
+            spawn(&clientHandler, thisTid, sock);
+            if(verbose) {
+                writeln("Adding socket. No. clients: ", socks.length);
+                writeln(wait);
+            }
         }
         catch(SocketAcceptException e) {}
     }
     listener.close();
     if(verbose) writeln("Listener thread ending...");
-}
-
-shared(Socket)[] socks;
-void socksHandler(Tid listener) {
-    bool run = true;
-    while(run) {
-        try receive(
-            (Tid thread, shared(Socket) sock) {
-                if(thread == listener) {
-                    socks ~= sock;
-                    spawn(&clientHandler, thisTid, sock);
-                    if(verbose) writeln("Adding socket. No. clients: ", socks.length);
-                }
-                else {
-                    foreach(i,s; socks) {
-                        if(s == sock) {
-                            socks = socks[0..i] ~ socks[i+1..$];
-                            if(verbose) writeln("Removing socket. No. clients: ", socks.length);
-                            break;
-                        }
-                    }
-                }
-            },
-            (OwnerTerminated e) {
-                run = false;
-            },
-            (Variant any) {
-            }
-        );
-        catch(Exception e) {
-            writeln(e.msg);
-            break;
-        }
-    }
-    if(verbose) writeln("Socket handler thread ending...");
 }
 
 void clientHandler(Tid sockHand, shared(Socket) sock) {
