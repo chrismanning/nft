@@ -12,7 +12,6 @@ core.thread
 import util;
 
 ushort port = 4321;
-ushort dataPort = 4320;
 bool verbose_;
 shared bool verbose;
 ubyte connections = 40;
@@ -21,7 +20,6 @@ uint retries = 3;
 void main(string[] args) {
     try {
         getopt(args,"port|p", &port,
-                    "data-port|dp", &dataPort,
                     "verbose|v", &verbose_,
                     "connections|c", &connections,
                     "retries|r", &retries
@@ -29,9 +27,11 @@ void main(string[] args) {
     }
     catch(ConvException e) {
         stderr.writeln("Incorrect parameter: " ~ e.msg);
+        return;
     }
     catch(Exception e) {
         stderr.writeln(e.msg);
+        return;
     }
 
     verbose = verbose_;
@@ -100,13 +100,14 @@ void listen(Tid mainThread) {
 }
 
 void clientHandler(Tid sockHand, shared(Socket) sock) {
-    auto server = new Server(dataPort);
+    auto server = new Server;
     server.attachControlSocket(sock);
 
     bool run = true;
     if(verbose) writefln("Connection from %s established", to!string(server.remoteAddress()));
     //send welcome message
     server.control.send(cast(const(void)[]) Command("WELCOME"));
+    //FIXME handle exceptions
     while(server.status && run) {
         if(verbose) writeln("Waiting for command...");
         try {
@@ -114,13 +115,13 @@ void clientHandler(Tid sockHand, shared(Socket) sock) {
             if(verbose) writefln("Command %s received",cmd.cmd);
             auto reply = server.interpreterCommand(cmd);
             if(!server.status) break;
-            if(reply.length > int.sizeof+1) {
+            if(reply.length > int.sizeof+2) {
                 if(verbose) writeln("Sending reply...");
                 server.send(reply);
             }
         }
         catch(Exception e) {
-            writeln("ERROR");
+            writeln(e.msg);
             server.status = false;
         }
     }
@@ -130,13 +131,10 @@ void clientHandler(Tid sockHand, shared(Socket) sock) {
 }
 
 class Server : NFT {
-    this(ushort dataPort) {
-        super(dataPort);
-    }
     Reply interpreterCommand(Command c) {
         if(c.cmd == "break") {
             status = false;
-            return Reply("");
+            return Reply("", ReplyType.STRING);
         }
         auto fp = c.cmd in commands;
         if(fp) {
@@ -145,6 +143,6 @@ class Server : NFT {
                 return replyBuf.back();
             }
         }
-        return Reply("Unknown Command: " ~ c.cmd);
+        return Reply("Unknown Command: " ~ c.cmd, ReplyType.ERROR);
     }
 }

@@ -1,17 +1,23 @@
-import std.stdio,std.socket,std.getopt,
-        std.algorithm,std.string;
+import std.stdio,
+std.socket,
+std.getopt,
+std.algorithm,
+std.string,
+std.conv,
+std.bitmanip,
+std.path
+;
 import util;
 
 ushort port = 4321;
-ushort dataPort = 4320;
 string server = "127.0.0.1";
 bool verbose;
 uint retries = 3;
 
 void main(string[] args) {
+    //FIXME handle exceptions for getopt
     getopt(args,"server|s", &server,
                 "port|p", &port,
-                "data-port|dp", &dataPort,
                 "verbose|v", &verbose,
                 "retries|r", &retries
           );
@@ -23,56 +29,71 @@ void main(string[] args) {
         stderr.writeln(e.msg);
         return;
     }
-
-    if(control.isAlive()) {
-        //receive welcome message
-        ubyte[1024] wbuf;
-        auto bytes = control.receive(wbuf);
-        if(bytes == Socket.ERROR) {
-            return;
-        }
-        if(wbuf.length > int.sizeof) {
-            auto tmp = (cast(int[])wbuf)[0];
-            writeln(Command(wbuf[int.sizeof..int.sizeof+tmp]).cmd);
-        }
-
-        string buf;
-        while(!stdin.eof()) {
-            write(" > ");
-            buf = strip(stdin.readln());
-            if(buf.length) {
-                if(buf == "break") break;
-                if(verbose) writeln("Sending command to server...");
-                control.send(cast(const(void)[]) Command(buf));
-                //wait for reply
-                if(verbose) writeln("Waiting for reply from server...");
-                bytes = control.receive(wbuf);
-                if(bytes > int.sizeof) {
-                    auto size = (cast(int[])wbuf)[0];
-                    ubyte[] tmp;
-                    if(bytes < size-int.sizeof) {
-                        tmp = wbuf[int.sizeof..bytes];
-                        auto x = new ubyte[size-int.sizeof];
-                        control.receive(x);
-                        tmp ~= x;
-                    }
-                    else {
-                        tmp = wbuf[int.sizeof..size];
-                    }
-                    auto r = Reply(tmp);
-                    writeln(r.splitData());
-                }
-                buf.length = 0;
-            }
-        }
-        writeln("exit");
+    auto client = new Client;
+    client.attachControlSocket(control);
+    //receive welcome message
+    //FIXME make a proper welcome message
+    ubyte[1024] wbuf;
+    auto bytes = control.receive(wbuf);
+    if(bytes == Socket.ERROR) {
+        return;
     }
-    writeln("bye");
+    if(wbuf.length > int.sizeof) {
+        ubyte[uint.sizeof] buf = wbuf[0..uint.sizeof];
+        auto tmp = bigEndianToNative!uint(buf);
+        writeln(Command(wbuf[uint.sizeof..uint.sizeof+tmp]).cmd);
+    }
+
+    string buf;
+    //FIXME handle exceptions
+    for(; client.status && !stdin.eof(); buf.length = 0) {
+        write(" > ");
+        buf = strip(stdin.readln());
+        if(buf.length) {
+            if(buf == "break") break;
+            if(verbose) writeln("Sending command to server...");
+            auto c = Command(buf);
+            client.send(c);
+            if(buf.canFind("download")) {
+                auto ds = client.receive!Reply();
+                if(ds.rt == ReplyType.DATA_SETUP) {
+                    writeln("Starting data connection");
+                    ubyte[2] t1 = ds.reply[0..2];
+                    auto port = bigEndianToNative!ushort(t1);
+                    ubyte[8] t2 = ds.reply[2..10];
+                    auto fileSize = bigEndianToNative!ulong(t2);
+                    client.connectDataConnection(new InternetAddress(server, port));
+                    auto f = File(baseName(c.args[0]), "wb");
+                    client.receiveFile(f, fileSize);
+                }
+                else {
+                    stderr.writeln(cast(string) ds.reply);
+                    continue;
+                }
+            }
+            //wait for reply
+            if(verbose) writeln("Waiting for reply from server...");
+            auto reply = client.receive!Reply();
+            client.interpretReply(reply);
+        }
+    }
+    writeln("exit");
     control.close();
 }
 
 class Client : NFT {
-    this(ushort dataPort) {
-        super(dataPort);
+    void interpretReply(Reply reply) {
+        if(reply.rt == ReplyType.STRING) {
+            writeln(cast(string) reply.reply);
+        }
+        else if(reply.rt == ReplyType.STRINGS) {
+            writeln(to!string(reply.splitData));
+        }
+        else if(reply.rt == ReplyType.ERROR) {
+            stderr.writeln(cast(string) reply.reply);
+        }
+        else if(reply.rt == ReplyType.DATA_SETUP) {
+            //writeln(reply.reply);
+        }
     }
 }
