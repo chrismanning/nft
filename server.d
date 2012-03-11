@@ -82,18 +82,32 @@ void listen(Tid mainThread) {
                         }
                     }
                 },
-                (OwnerTerminated e) {run = false;},
-                (Variant any) {}
+                (OwnerTerminated e) {
+                    //stop doing stuff when main thread ends
+                    run = false;
+                    listener.close();
+                },
+                (Variant any) {
+                    //this stops the message buffer from filling up
+                }
             );
-            auto sock = cast(shared)listener.accept();
-            socks ~= sock;
-            spawn(&clientHandler, thisTid, sock);
+            auto sock = listener.accept();
+            version(Windows) sock.blocking = true;
+            socks ~= cast(shared) sock;
+            spawn(&clientHandler, thisTid, socks[$-1]);
             if(verbose) {
                 writeln("Adding socket. No. clients: ", socks.length);
                 writeln(wait);
             }
         }
-        catch(SocketAcceptException e) {}
+        catch(SocketOSException e) {
+            /* Non-blocking accept() throws a SocketAcceptException on failure to connect
+             * (ie. when waiting).
+             * On windows accept() doesn't throw but any other operation (like set it to
+             * block) will as the socket isn't connected.
+             * This is expected so let the loop continue.
+             */
+        }
     }
     listener.close();
     if(verbose) writeln("Listener thread ending...");
