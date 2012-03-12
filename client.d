@@ -15,12 +15,21 @@ bool verbose;
 uint retries = 3;
 
 void main(string[] args) {
-    //FIXME handle exceptions for getopt
-    getopt(args,"server|s", &server,
-                "port|p", &port,
-                "verbose|v", &verbose,
-                "retries|r", &retries
-          );
+    try {
+        getopt(args,"server|s", &server,
+                    "port|p", &port,
+                    "verbose|v", &verbose,
+                    "retries|r", &retries
+              );
+    }
+    catch(ConvException e) {
+        stderr.writeln("Incorrect parameter: " ~ e.msg);
+        return;
+    }
+    catch(Exception e) {
+        stderr.writeln(e.msg);
+        return;
+    }
 
     Socket control = new TcpSocket;
     if(verbose) writefln("Connecting to server: %s:%d",server,port);
