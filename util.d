@@ -36,6 +36,29 @@ enum ReplyType : ubyte {
     DATA_SETUP
 }
 
+class DisconnectException : Exception {
+    this(Address raddr) {
+        super(raddr.toString ~ " disconnected");
+    }
+    this(Socket rsock) {
+        super(rsock.remoteAddress.toString ~ " disconnected");
+        rsock.close();
+    }
+}
+
+class NetworkErrorException : Exception {
+    this() {
+        super("A network error occurred");
+    }
+}
+
+class WrongMsgException : Exception {
+    this(TypeInfo exp, TypeInfo got) {
+        super("Expected " ~ to!string(exp) ~
+              ", got " ~ to!string(got));
+    }
+}
+
 enum BUFSIZE = 8 * 1024;
 
 template isMsgType(T) {
@@ -97,10 +120,12 @@ public:
         commands["upload"] = &upload;
         dir = getcwd();
         status = true;
+        socks = new SocketSet;
     }
 
     void attachControlSocket(Socket sock) {
         control = sock;
+        socks.add(control);
     }
     void attachControlSocket(shared(Socket) sock) {
         control = cast(Socket)sock;
@@ -124,6 +149,7 @@ public:
 
     void connectDataConnection(Address remote) {
         dataSock = new TcpSocket;
+        socks.add(dataSock);
 
         try {
             dataSock.connect(remote);
@@ -137,17 +163,21 @@ public:
         if(dataSock.isAlive()) {
             ulong bytesSent;
             foreach(ubyte[] buf; file.byChunk(BUFSIZE)) {
+retry:
                 auto bytes = dataSock.send(buf);
-                if(bytes == buf.length) {
+                if(bytes == Socket.ERROR)
+                    throw new NetworkErrorException;
+                else if(bytes == 0)
+                    throw new DisconnectException(dataSock);
+                else if(bytes == buf.length) {
                     bytesSent += bytes;
                     if(progress) progressBar(bytesSent, file.size);
                 }
-                else if(bytes == 0)
-                    throw new Exception("Client has disconnected");
-                else if(bytes == Socket.ERROR)
-                    throw new Exception("Network Error");
-                else
-                    throw new Exception("Wrong amount of data sent");
+                else {//retry incomplete send
+                    buf = buf[bytes..$];
+                    bytesSent += bytes;
+                    goto retry;
+                }
             }
         }
         if(progress) writeln();
@@ -161,23 +191,33 @@ public:
             ulong bytesReceived;
             ubyte[BUFSIZE] buf;
             while(bytesReceived < size) {
-                auto bytes = dataSock.receive(buf);
-                if(bytes > 0) {
-                    bytesReceived += bytes;
-                    if(progress) {
-                        if(cast(core.time.Duration)(timer.peek() - last) > dur!"msecs"(200)) {
-                            progressBar(bytesReceived, size);
-                            last = timer.peek();
-                        }
+                Socket.select(socks, null, null);
+                if(socks.isSet(control)) {
+                    Reply r = receiveMsg!Reply();
+                    if(r.rt == ReplyType.ERROR) {
+                        stderr.writeln(cast(string) r.reply);
+                        break;
                     }
-                    file.rawWrite(buf[0..bytes]);
                 }
-                else if(bytes == 0)
-                    throw new Exception("Client has disconnected");
-                else if(bytes == Socket.ERROR)
-                    throw new Exception("Network Error");
-                else
-                    throw new Exception("Wrong amount of data received");
+                if(socks.isSet(dataSock)) {
+                    auto bytes = dataSock.receive(buf);
+                    if(bytes > 0) {
+                        bytesReceived += bytes;
+                        if(progress) {
+                            if(cast(core.time.Duration)(timer.peek() - last) > dur!"msecs"(200)) {
+                                progressBar(bytesReceived, size);
+                                last = timer.peek();
+                            }
+                        }
+                        file.rawWrite(buf[0..bytes]);
+                    }
+                    else if(bytes == 0)
+                        throw new DisconnectException(dataSock);
+                    else if(bytes == Socket.ERROR)
+                        throw new NetworkErrorException;
+                    else
+                        throw new Exception("Wrong amount of data received");
+                }
             }
             timer.stop();
             if(progress) {
@@ -193,31 +233,31 @@ public:
         file.close();
     }
 
-    void send(Msg)(Msg msg) if(isMsgType!Msg) {
+    void sendMsg(Msg)(Msg msg) if(isMsgType!Msg) {
         auto bytes = control.send(cast(const(void)[]) msg);
         if(bytes == msg.length) {
             success!Msg();
             return;
         }
         else if(bytes == 0)
-            throw new Exception("Client has disconnected");
+            throw new DisconnectException(control);
         else if(bytes == Socket.ERROR)
-            throw new Exception("Network Error");
+            throw new NetworkErrorException;
         else
             throw new Exception("Wrong amount of data sent");
     }
 
-    Msg receive(Msg)() if(isMsgType!Msg) {
+    Msg receiveMsg(Msg)() if(isMsgType!Msg) {
         //first 5 bytes should be size of data (4 bytes) + msg type (1 byte)
         ubyte[5] buf;
         auto bytes = control.receive(buf);
 
         if(bytes == buf.length) {
             static if(is(Msg == Command)) {
-                if(buf[int.sizeof] != MsgType.CMD) throw new Exception("Wrong message type");
+                if(buf[int.sizeof] != MsgType.CMD) throw new WrongMsgException(typeid(Command),typeid(Reply));
             }
             else {
-                if(buf[int.sizeof] != MsgType.REPLY) throw new Exception("Wrong message type");
+                if(buf[int.sizeof] != MsgType.REPLY) throw new WrongMsgException(typeid(Reply),typeid(Command));
             }
             ubyte[uint.sizeof] t1 = buf[0..uint.sizeof];
             uint msgSize = bigEndianToNative!uint(t1);
@@ -229,10 +269,10 @@ public:
             }
         }
         if(bytes == 0) {
-            throw new Exception("Remote host has disconnected");
+            throw new DisconnectException(control);
         }
         else if(bytes == Socket.ERROR) {
-            throw new Exception("Network Error");
+            throw new NetworkErrorException;
         }
         else
             throw new Exception("Wrong amount of data received");
@@ -251,8 +291,11 @@ protected:
     cmd[string] commands;
     Socket control;
     Socket dataSock;
+    SocketSet socks;
 
 private:
+    //TODO client-side commands
+
     bool ls(string[] args ...) {
         auto x = replyBuf.length;
         if(args.length) {
@@ -321,11 +364,12 @@ private:
                     auto f = File(filename,"rb");
                     auto rb = nativeToBigEndian(port) ~ nativeToBigEndian(f.size());
                     reply = new Reply(rb, ReplyType.DATA_SETUP);
-                    this.send(*reply);
+                    this.sendMsg(*reply);
                     dataSock = sock.accept();
                     sendFile(f);
                 }
                 catch(Exception e) {
+                    stderr.writeln(e.msg);
                     reply = new Reply(e.msg, ReplyType.ERROR);
                 }
                 finally {
@@ -346,6 +390,7 @@ private:
 
     bool upload(string[] args ...) {
         auto x = replyBuf.length;
+        //TODO client uploading
         return replyBuf.length == x+1;
     }
 

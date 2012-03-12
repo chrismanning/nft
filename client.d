@@ -62,28 +62,42 @@ void main(string[] args) {
             if(buf == "break") break;
             if(verbose) writeln("Sending command to server...");
             auto c = Command(buf);
-            client.send(c);
-            if(buf.canFind("download")) {
-                auto ds = client.receive!Reply();
-                if(ds.rt == ReplyType.DATA_SETUP) {
-                    writeln("Starting data connection");
-                    ubyte[2] t1 = ds.reply[0..2];
-                    auto port = bigEndianToNative!ushort(t1);
-                    ubyte[8] t2 = ds.reply[2..10];
-                    auto fileSize = bigEndianToNative!ulong(t2);
-                    client.connectDataConnection(new InternetAddress(server, port));
-                    auto f = File(baseName(c.args[0]), "wb");
-                    client.receiveFile(f, fileSize, true);
+            try {
+                client.sendMsg(c);
+                if(buf.canFind("download")) {
+                    auto ds = client.receiveMsg!Reply();
+                    if(ds.rt == ReplyType.DATA_SETUP) {
+                        writeln("Starting data connection");
+                        ubyte[2] t1 = ds.reply[0..2];
+                        auto port = bigEndianToNative!ushort(t1);
+                        ubyte[8] t2 = ds.reply[2..10];
+                        auto fileSize = bigEndianToNative!ulong(t2);
+                        client.connectDataConnection(new InternetAddress(server, port));
+                        auto f = File(baseName(c.args[0]), "wb");
+                        try client.receiveFile(f, fileSize, true);
+                        catch(Exception e) {
+                            writeln(e.msg);
+                        }
+                    }
+                    else {
+                        stderr.writeln(cast(string) ds.reply);
+                        continue;
+                    }
                 }
-                else {
-                    stderr.writeln(cast(string) ds.reply);
-                    continue;
-                }
+
+                //wait for reply
+                if(verbose) writeln("Waiting for reply from server...");
+                auto reply = client.receiveMsg!Reply();
+                client.interpretReply(reply);
             }
-            //wait for reply
-            if(verbose) writeln("Waiting for reply from server...");
-            auto reply = client.receive!Reply();
-            client.interpretReply(reply);
+            catch(DisconnectException e) {
+                stderr.writeln(e.msg);
+                break;
+            }
+            catch(NetworkErrorException e) {
+                stderr.writeln(e.msg);
+                break;
+            }
         }
     }
     writeln("exit");
