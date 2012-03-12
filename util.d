@@ -140,9 +140,6 @@ public:
                 auto bytes = dataSock.send(buf);
                 if(bytes == buf.length) {
                     bytesSent += bytes;
-                    if(bytes < BUFSIZE && bytesSent < file.size) {
-                        throw new Exception("Unexpected end of buffer");
-                    }
                     if(progress) progressBar(bytesSent, file.size);
                 }
                 else if(bytes == 0)
@@ -167,9 +164,6 @@ public:
                 auto bytes = dataSock.receive(buf);
                 if(bytes > 0) {
                     bytesReceived += bytes;
-                    if(bytes < BUFSIZE && bytesReceived < size) {
-                        throw new Exception("Unexpected end of buffer");
-                    }
                     if(progress) {
                         if(cast(core.time.Duration)(timer.peek() - last) > dur!"msecs"(200)) {
                             progressBar(bytesReceived, size);
