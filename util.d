@@ -15,7 +15,12 @@ std.concurrency,
 core.thread,
 std.bitmanip,
 std.outbuffer,
-std.regex
+std.regex,
+std.datetime,
+std.format
+;
+version(Posix) import
+core.stdc.config
 ;
 
 enum MsgType : ubyte {
@@ -35,6 +40,51 @@ enum BUFSIZE = 8 * 1024;
 
 template isMsgType(T) {
     enum isMsgType = is(T == Command) || is(T == Reply);
+}
+version(Posix) {
+    extern(C) {
+        struct winsize {
+            ushort ws_row;
+            ushort ws_col;
+            ushort ws_xpixel;
+            ushort ws_ypixel;
+        };
+        int ioctl (int __fd, c_ulong __request, ...);
+        enum TIOCGWINSZ = 0x5413;
+    }
+}
+
+static void progressBar(ulong val, ulong total) {
+    ushort columns = 80;
+    version(Posix) {
+        winsize w;
+        ioctl(0, TIOCGWINSZ, &w);
+        columns = w.ws_col;
+    }
+    auto width = columns - 9;
+    auto app = appender!string();
+    app.reserve(columns);
+    app.put('[');
+    auto ratio = val / cast(double)total;
+    auto size = cast(uint) (ratio * width);
+
+    foreach(i; 0..size) {
+        app.put('=');
+    }
+    foreach(j; size..width) {
+        app.put(' ');
+    }
+    formattedWrite(app, "] %d%%", cast(uint) (ratio * 100));
+    if(app.capacity) {
+        auto padding = new char[app.capacity-columns-1];
+        padding[] = ' ';
+        app.put(padding);
+    }
+    //write("\033[F\033[J");
+    //write("\33[1A\33[2K");
+    write(strip(app.data));
+    write("\r");
+    stdout.flush();
 }
 
 abstract class NFT {
@@ -83,16 +133,17 @@ public:
         }
     }
 
-    void sendFile(ref File file) {
+    void sendFile(ref File file, bool progress = false) {
         if(dataSock.isAlive()) {
             ulong bytesSent;
             foreach(ubyte[] buf; file.byChunk(BUFSIZE)) {
                 auto bytes = dataSock.send(buf);
                 if(bytes == buf.length) {
                     bytesSent += bytes;
-                    if(bytes < BUFSIZE && bytesSent < file.size()) {
+                    if(bytes < BUFSIZE && bytesSent < file.size) {
                         throw new Exception("Unexpected end of buffer");
                     }
+                    if(progress) progressBar(bytesSent, file.size);
                 }
                 else if(bytes == 0)
                     throw new Exception("Client has disconnected");
@@ -102,18 +153,28 @@ public:
                     throw new Exception("Wrong amount of data sent");
             }
         }
+        if(progress) writeln();
     }
 
-    void receiveFile(ref File file, ulong size) {
+    void receiveFile(ref File file, ulong size, bool progress = false) {
         if(dataSock.isAlive()) {
+            StopWatch timer;
+            TickDuration last = TickDuration.from!"seconds"(0);
+            timer.start();
             ulong bytesReceived;
+            ubyte[BUFSIZE] buf;
             while(bytesReceived < size) {
-                ubyte[BUFSIZE] buf;
                 auto bytes = dataSock.receive(buf);
                 if(bytes > 0) {
                     bytesReceived += bytes;
                     if(bytes < BUFSIZE && bytesReceived < size) {
                         throw new Exception("Unexpected end of buffer");
+                    }
+                    if(progress) {
+                        if(cast(core.time.Duration)(timer.peek() - last) > dur!"msecs"(200)) {
+                            progressBar(bytesReceived, size);
+                            last = timer.peek();
+                        }
                     }
                     file.rawWrite(buf[0..bytes]);
                 }
@@ -122,12 +183,20 @@ public:
                 else if(bytes == Socket.ERROR)
                     throw new Exception("Network Error");
                 else
-                    throw new Exception("Wrong amount of data sent");
-
+                    throw new Exception("Wrong amount of data received");
             }
-            writeln("File size: ", size);
-            writeln("Actual size: ", file.size());
+            timer.stop();
+            if(progress) {
+                writeln();
+                writeln("File downloaded in: ", timer.peek().msecs, " msecs");
+                writefln("Average download speed: %.2f KB/s", (size/(timer.peek().to!("msecs",double)()/1000)/1024));
+            }
+            if(size != file.size) {
+                throw new Exception("File size doesn't match");
+            }
         }
+        file.flush();
+        file.close();
     }
 
     void send(Msg)(Msg msg) if(isMsgType!Msg) {

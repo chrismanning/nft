@@ -1,5 +1,5 @@
 DMD = dmd
-FLAGS = -gc
+FLAGS = -gc -inline
 
 all: server client
 

@@ -64,7 +64,7 @@ void main(string[] args) {
                     auto fileSize = bigEndianToNative!ulong(t2);
                     client.connectDataConnection(new InternetAddress(server, port));
                     auto f = File(baseName(c.args[0]), "wb");
-                    client.receiveFile(f, fileSize);
+                    client.receiveFile(f, fileSize, true);
                 }
                 else {
                     stderr.writeln(cast(string) ds.reply);
