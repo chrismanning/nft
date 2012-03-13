@@ -1,4 +1,4 @@
-DMD = dmd
+DMD ?= dmd
 FLAGS = -gc -inline
 
 all: server client
