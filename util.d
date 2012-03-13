@@ -125,6 +125,7 @@ public:
     void connectDataConnection(Address remote) {
         dataSock = new TcpSocket;
 
+        version(Windows) dataSock.blocking = true;
         try {
             dataSock.connect(remote);
         }
@@ -328,7 +329,15 @@ private:
                     auto rb = nativeToBigEndian(port) ~ nativeToBigEndian(f.size());
                     reply = new Reply(rb, ReplyType.DATA_SETUP);
                     this.send(*reply);
-                    dataSock = sock.accept();
+                    while(true) {
+                        try {
+                            dataSock = sock.accept();
+                            version(Windows) dataSock.blocking = true;
+                            break;
+                        }
+                        catch(SocketOSException e) {
+                        }
+                    }
                     sendFile(f);
                 }
                 catch(Exception e) {
