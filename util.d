@@ -115,8 +115,8 @@ public:
         commands["ls"] = &ls;
         commands["pwd"] = &pwd;
         commands["cd"] = &cd;
-        commands["download"] = &download;
-        commands["upload"] = &upload;
+        commands["cpfr"] = &cpfr;
+        commands["cptr"] = &cptr;
         dir = getcwd();
         status = true;
         socks = new SocketSet;
@@ -351,7 +351,7 @@ private:
         return s;
     }
 
-    bool download(string[] args ...) {
+    bool cpfr(string[] args ...) {
         auto x = replyBuf.length;
         Reply * reply;
         if(args.length) {
@@ -396,7 +396,7 @@ private:
         return replyBuf.length == x+1;
     }
 
-    bool upload(string[] args ...) {
+    bool cptr(string[] args ...) {
         auto x = replyBuf.length;
         //TODO client uploading
         return replyBuf.length == x+1;
