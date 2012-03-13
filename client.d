@@ -89,7 +89,7 @@ void main(string[] args) {
             auto c = Command(buf);
             try {
                 client.sendMsg(c);
-                if(buf.canFind("download")) {
+                if(buf.canFind("cpfr")) {
                     auto ds = client.receiveMsg!Reply();
                     if(ds.rt == ReplyType.DATA_SETUP) {
                         writeln("Starting data connection");
