@@ -4,10 +4,10 @@ FLAGS = -gc -inline
 all: server client
 
 server: server.o util.o
-	$(DMD) $(FLAGS) $^
+	$(DMD) $(FLAGS) $^ -of$@
 
 client: client.o util.o
-	$(DMD) $(FLAGS) $^
+	$(DMD) $(FLAGS) $^ -of$@
 
 %.o: %.d
 	$(DMD) $(FLAGS) -c $<
