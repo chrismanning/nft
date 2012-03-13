@@ -102,11 +102,15 @@ static void progressBar(ulong val, ulong total) {
         padding[] = ' ';
         app.put(padding);
     }
-    //write("\033[F\033[J");
-    //write("\33[1A\33[2K");
+
     write(strip(app.data));
-    write("\r");
-    stdout.flush();
+    version(Posix) {
+        write("\n\33[1A\33[2K");
+    }
+    else {
+        write("\r");
+        stdout.flush();
+    }
 }
 
 abstract class NFT {
@@ -426,10 +430,7 @@ struct Command {
             tmp.popFront();
             foreach(capture; tmp) {
                 if(capture.hit.startsWith(`"`)) {
-                    writeln("quoted");
-                    writeln(capture);
                     capture.popFront();
-                    writeln(capture);
                 }
                 if(capture.hit.length) {
                     args ~= capture.front;
