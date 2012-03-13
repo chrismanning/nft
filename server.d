@@ -125,13 +125,13 @@ void clientHandler(Tid sockHand, shared(Socket) sock) {
     while(server.status && run) {
         if(verbose) writeln("Waiting for command...");
         try {
-            auto cmd = server.receive!Command();
+            auto cmd = server.receiveMsg!Command();
             if(verbose) writefln("Command %s received",cmd.cmd);
             auto reply = server.interpreterCommand(cmd);
             if(!server.status) break;
             if(reply.length > int.sizeof+2) {
                 if(verbose) writeln("Sending reply...");
-                server.send(reply);
+                server.sendMsg(reply);
             }
         }
         catch(Exception e) {
