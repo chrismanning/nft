@@ -15,14 +15,21 @@ ushort port = 4321;
 bool verbose_;
 shared bool verbose;
 ubyte connections = 40;
-uint retries = 3;
+bool argUsage;
+
+static void printArgUsage() {
+    writeln("-p, --port=PORT     : The port to listen on. Default is 4321.");
+    writeln("-v, --verbose       : Print some extra messages reporting progress.");
+    writefln("-c, --connections   : Limit the number of clients able to connect. Default is %d.", connections);
+    writeln("-h, --help, --usage : Print this help page.");
+}
 
 void main(string[] args) {
     try {
         getopt(args,"port|p", &port,
                     "verbose|v", &verbose_,
                     "connections|c", &connections,
-                    "retries|r", &retries
+                    "usage|help|h", &argUsage
             );
     }
     catch(ConvException e) {
@@ -31,6 +38,10 @@ void main(string[] args) {
     }
     catch(Exception e) {
         stderr.writeln(e.msg);
+        return;
+    }
+    if(argUsage) {
+        printArgUsage();
         return;
     }
 

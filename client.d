@@ -12,14 +12,29 @@ import util;
 ushort port = 4321;
 string server = "127.0.0.1";
 bool verbose;
-uint retries = 3;
+bool argUsage;
+
+enum usage = ["pwd"  :"pwd       : Print current (remote) working directory.",
+              "cd"   :"cd [dir]  : Change (remote) working directory to [dir] or back to the default if [dir] is empty.",
+              "ls"   :"ls [dir]  : List (remote) [dir] entries, or current working directory if [dir] is empty.",
+              "cptr" :"cptr file : Upload file to server.",
+              "cpfr" :"cpfr file : Download file from server."
+             ];
+
+static void printArgUsage() {
+    writeln("-s, --server=HOST   : The remote host to use as the server (IP address or hostname).\n"
+            "                    | Default is 127.0.0.1 (localhost)");
+    writeln("-p, --port=PORT     : The port to connect to the server on. Default is 4321.");
+    writeln("-v, --verbose       : Print some extra messages reporting progress.");
+    writeln("-h, --help, --usage : Print this help page.");
+}
 
 void main(string[] args) {
     try {
         getopt(args,"server|s", &server,
                     "port|p", &port,
                     "verbose|v", &verbose,
-                    "retries|r", &retries
+                    "usage|help|h", &argUsage
               );
     }
     catch(ConvException e) {
@@ -28,6 +43,10 @@ void main(string[] args) {
     }
     catch(Exception e) {
         stderr.writeln(e.msg);
+        return;
+    }
+    if(argUsage) {
+        printArgUsage();
         return;
     }
 
@@ -60,6 +79,12 @@ void main(string[] args) {
         buf = strip(stdin.readln());
         if(buf.length) {
             if(buf == "break") break;
+            if(buf == "usage" || buf == "help") {
+                foreach(string key; client.getCommands.sort) {
+                    writeln(usage[key]);
+                }
+                continue;
+            }
             if(verbose) writeln("Sending command to server...");
             auto c = Command(buf);
             try {

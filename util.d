@@ -282,6 +282,16 @@ retry:
         return control.remoteAddress();
     }
 
+    @property {
+        string[] getCommands() {
+            string[] tmp;
+            foreach(k, cmd; commands) {
+                tmp ~= k;
+            }
+            return tmp;
+        }
+    }
+
     bool status;
 
 protected:
