@@ -384,7 +384,7 @@ struct Command {
     this(ubyte[] input) {
         //if taking the raw input it should at least be the right type
         enforce(input[0] == MsgType.CMD,"Not a CMD");
-        auto tmp = array(filter!(a => a.length > 0)(std.algorithm.splitter(input[1..$],cast(ubyte)0)));
+        auto tmp = array(filter!(`a.length > 0`)(std.algorithm.splitter(input[1..$],cast(ubyte)0)));
         if(tmp.length) {
             cmd = cast(string) tmp[0];
             if(tmp.length > 1) {
@@ -461,7 +461,7 @@ struct Reply {
     }
 
     string[] splitData() {
-        return cast(string[]) array(filter!(a => a.length > 0)(std.algorithm.splitter(reply,cast(ubyte)0)));
+        return cast(string[]) array(filter!(`a.length > 0`)(std.algorithm.splitter(reply,cast(ubyte)0)));
     }
 
     ubyte rt;
