@@ -38,10 +38,10 @@ enum ReplyType : ubyte {
 
 class DisconnectException : Exception {
     this(Address raddr) {
-        super(raddr.toString ~ " disconnected");
+        super(to!string(raddr) ~ " disconnected");
     }
     this(Socket rsock) {
-        super(rsock.remoteAddress.toString ~ " disconnected");
+        super(to!string(rsock.remoteAddress()) ~ " disconnected");
         rsock.close();
     }
 }
