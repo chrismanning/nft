@@ -135,7 +135,7 @@ class Client : NFT {
             writeln(cast(string) reply.reply);
         }
         else if(reply.rt == ReplyType.STRINGS) {
-            writeln(to!string(reply.splitData));
+            writeln(to!string(reply.splitData().sort));
         }
         else if(reply.rt == ReplyType.ERROR) {
             stderr.writeln(cast(string) reply.reply);
