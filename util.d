@@ -9,6 +9,7 @@ std.conv,
 std.path,
 std.exception,
 std.container,
+std.typecons,
 std.socket,
 std.traits,
 core.thread,
@@ -30,7 +31,7 @@ enum MsgType : ubyte {
 
 enum ReplyType : ubyte {
     STRING,
-    STRINGS,
+    DIR_ENTRIES,
     ERROR,
     DATA_SETUP
 }
@@ -63,6 +64,50 @@ enum BUFSIZE = 8 * 1024;
 template isMsgType(T) {
     enum isMsgType = is(T == Command) || is(T == Reply);
 }
+
+struct NetDirEntry {
+    this(DirEntry e) {
+        name = e.name;
+        isDir = e.isDir;
+        attributes = e.attributes;
+    }
+    this(ubyte[] raw) {
+        isDir = cast(bool)raw[0];
+        ubyte[uint.sizeof] tmp = raw[1..5];
+        attributes = bigEndianToNative!uint(tmp);
+        name = cast(string) raw[5..$];
+    }
+    string name;
+    bool isDir;
+    uint attributes;
+    @property uint length() const {
+        return cast(uint) name.length + 5;
+    }
+    ubyte[] opCast() immutable {
+        auto buf = new OutBuffer;
+        buf.write(nativeToBigEndian(length));
+        buf.write(cast(ubyte) isDir);
+        buf.write(nativeToBigEndian(attributes));
+        buf.write(name);
+        return buf.toBytes();
+    }
+    int opCmp(ref const NetDirEntry e) const {
+        return cmp(name, e.name);
+    }
+    static NetDirEntry[] splitRawData(ubyte[] data_) {
+        ubyte[] data = data_;
+        NetDirEntry[] output;
+        while(data.length) {
+            ubyte[uint.sizeof] tmp = data[0..uint.sizeof];
+            data = data[uint.sizeof..$];
+            auto s = bigEndianToNative!uint(tmp);
+            output ~= NetDirEntry(data[0..s]);
+            data = data[s..$];
+        }
+        return output;
+    }
+}
+
 version(Posix) {
     extern(C) {
         struct winsize {
@@ -74,14 +119,20 @@ version(Posix) {
         int ioctl (int __fd, c_ulong __request, ...);
         enum TIOCGWINSZ = 0x5413;
     }
+    auto getTermSize() {
+        Tuple!(ushort,"w", ushort,"h") dims;
+        winsize w;
+        ioctl(0, TIOCGWINSZ, &w);
+        dims.w = w.ws_col;
+        dims.h = w.ws_row;
+        return dims;
+    }
 }
 
 static void progressBar(ulong val, ulong total) {
     ushort columns = 80;
     version(Posix) {
-        winsize w;
-        ioctl(0, TIOCGWINSZ, &w);
-        columns = w.ws_col;
+        columns = getTermSize().w;
     }
     auto width = columns - 9;
     auto app = appender!string();
@@ -317,11 +368,12 @@ private:
 //                //FIXME handle argument for ls
 //            }
         }
-        string tmp;
-        foreach(string name; dirEntries(dir, SpanMode.shallow)) {
-            tmp ~= relativePath(name, dir) ~ 0;
+        NetDirEntry[] tmp;
+        foreach(entry; filter!"!a.isSymlink"(dirEntries(dir, SpanMode.shallow))) {
+            tmp ~= NetDirEntry(entry);
+            tmp[$-1].name = relativePath(entry.name, dir);
         }
-        replyBuf.insertBack(Reply(tmp[0..$-1].idup, ReplyType.STRINGS));
+        replyBuf.insertBack(Reply(assumeUnique(tmp)));
         return replyBuf.length == x+1;
     }
 
@@ -489,12 +541,11 @@ struct Reply {
         rt = rt_;
         reply = cast(ubyte[])input;
     }
-    this(string[] input, ubyte rt_ = ReplyType.STRINGS) {
-        rt = rt_;
-        foreach(str; input) {
-            reply ~= cast(ubyte[]) str ~ 0;
+    this(immutable(NetDirEntry)[] es) {
+        rt = ReplyType.DIR_ENTRIES;
+        foreach(e; es) {
+            reply ~= cast(ubyte[]) e;
         }
-        reply = reply[0..$-1];
     }
 
     //copy constructor

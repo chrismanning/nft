@@ -5,7 +5,9 @@ std.algorithm,
 std.string,
 std.conv,
 std.bitmanip,
-std.path
+std.path,
+std.format,
+std.array
 ;
 import util;
 
@@ -134,8 +136,37 @@ class Client : NFT {
         if(reply.rt == ReplyType.STRING) {
             writeln(cast(string) reply.reply);
         }
-        else if(reply.rt == ReplyType.STRINGS) {
-            writeln(to!string(reply.splitData().sort));
+        else if(reply.rt == ReplyType.DIR_ENTRIES) {
+            auto columns = getTermSize().w;
+            auto entries = NetDirEntry.splitRawData(reply.reply);
+            auto app = appender!string();
+            //get maximum length of entries
+            auto width = reduce!("max(a,cast(int)b.name.length)")(0,entries) + 1;
+            uint counter;
+            foreach(e; entries.sort) {
+                string pad;
+                counter++;
+                if(!(counter % (columns / width))) {
+                    pad = "\n";
+                }
+                string name;
+                version(Posix) {
+                    if(e.isDir) {
+                        name = "\33[01;34m" ~ e.name;
+                    }
+                    else {
+                        if(e.attributes & octal!100) {
+                            name = "\33[01;32m" ~ e.name;
+                        }
+                        else {
+                            name = "\33[00;37m" ~ e.name;
+                        }
+                    }
+                }
+                else name = e.name;
+                formattedWrite(app,"%-0*s%s", width + 8, name, pad);
+            }
+            writeln(strip(app.data));
         }
         else if(reply.rt == ReplyType.ERROR) {
             stderr.writeln(cast(string) reply.reply);
