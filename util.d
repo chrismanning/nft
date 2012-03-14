@@ -172,6 +172,7 @@ public:
         commands["cd"] = &cd;
         commands["cpfr"] = &cpfr;
         commands["cptr"] = &cptr;
+        commands["du"] = &du;
         dir = getcwd();
         status = true;
         socks = new SocketSet;
@@ -377,6 +378,22 @@ private:
         return replyBuf.length == x+1;
     }
 
+    bool du(string[] args ...) {
+        auto x = replyBuf.length;
+        if(args.length) {
+            if(args[0].exists && args[0].isFile) {
+                replyBuf.insertBack(Reply(to!string(dirEntry(args[0]).size) ~ " bytes"));
+            }
+            else {
+                replyBuf.insertBack(Reply(args[0] ~ ": not a file"));
+            }
+        }
+        else {
+            replyBuf.insertBack(Reply("du requires an argument.", ReplyType.ERROR));
+        }
+        return replyBuf.length == x+1;
+    }
+
     bool pwd(string[] args ...) {
         auto x = replyBuf.length;
         replyBuf.insertBack(Reply(absolutePath(dir), ReplyType.STRING));
@@ -387,7 +404,7 @@ private:
         auto x = replyBuf.length;
         if(args.length) {
             auto str = buildNormalizedPath(absolutePath(args[0], dir));
-            if(str.isDir) {
+            if(str.exists && str.isDir) {
                 dir = str;
                 replyBuf.insertBack(Reply(str, ReplyType.STRING));
             }
