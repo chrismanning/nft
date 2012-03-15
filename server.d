@@ -163,8 +163,7 @@ class Server : NFT {
         }
         auto fp = c.cmd in commands;
         if(fp) {
-            auto nargs = c.args.length;
-            if((*fp)(c.args)) {
+            if((*fp)(c.arg)) {
                 return replyBuf.back();
             }
         }

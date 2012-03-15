@@ -87,27 +87,21 @@ void main(string[] args) {
                 }
                 continue;
             }
-            if(verbose) writeln("Sending command to server...");
             auto c = Command(buf);
+            if(buf.startsWith("loc")) {
+                client.executeLocalCmd(c);
+                continue;
+            }
+            if(verbose) writeln("Sending command to server...");
             try {
                 client.sendMsg(c);
-                if(buf.canFind("cpfr")) {
-                    auto ds = client.receiveMsg!Reply();
-                    if(ds.rt == ReplyType.DATA_SETUP) {
-                        writeln("Starting data connection");
-                        ubyte[2] t1 = ds.reply[0..2];
-                        auto port = bigEndianToNative!ushort(t1);
-                        ubyte[8] t2 = ds.reply[2..10];
-                        auto fileSize = bigEndianToNative!ulong(t2);
-                        client.connectDataConnection(new InternetAddress(server, port));
-                        auto f = File(baseName(c.args[0]), "wb");
-                        try client.receiveFile(f, fileSize, true);
-                        catch(Exception e) {
-                            writeln(e.msg);
-                        }
+                if(c.cmd == "cpfr") {
+                    if(!fileTransferHandler!"down"(client, c)) {
+                        continue;
                     }
-                    else {
-                        stderr.writeln(cast(string) ds.reply);
+                }
+                else if(c.cmd == "cptr") {
+                    if(!fileTransferHandler!"up"(client, c)) {
                         continue;
                     }
                 }
@@ -131,48 +125,67 @@ void main(string[] args) {
     control.close();
 }
 
+bool fileTransferHandler(string direction)(Client client, ref Command cmd)
+if(direction == "up" || direction == "down") {
+    auto ds = client.receiveMsg!Reply();
+    if(ds.rt == ReplyType.DATA_SETUP) {
+        if(verbose) writeln("Starting data connection...");
+        ubyte[2] t1 = ds.reply[0..2];
+        auto port = bigEndianToNative!ushort(t1);
+        ubyte[8] t2 = ds.reply[2..10];
+        auto fileSize = bigEndianToNative!ulong(t2);
+        client.connectDataConnection(new InternetAddress(server, port));
+        static if(direction == "down") {
+            auto f = File(baseName(cmd.arg), "wb");
+            try {
+                client.receiveFile(f, fileSize, true);
+                return true;
+            }
+            catch(Exception e) {
+                stderr.writeln(e.msg);
+                return false;
+            }
+        }
+        else {
+            try {
+                client.sendMsg(Reply(nativeToBigEndian(std.file.getSize(cmd.arg)),ReplyType.DATA_SETUP));
+                auto f = File(cmd.arg, "rb");
+                client.sendFile(f, true);
+                return true;
+            }
+            catch(Exception e) {
+                stderr.writeln(e.msg);
+                return false;
+            }
+        }
+    }
+    else {
+        stderr.writeln(cast(string) ds.reply);
+        return false;
+    }
+}
+
 class Client : NFT {
     void interpretReply(Reply reply) {
         if(reply.rt == ReplyType.STRING) {
             writeln(cast(string) reply.reply);
         }
         else if(reply.rt == ReplyType.DIR_ENTRIES) {
-            auto columns = getTermSize().w;
-            auto entries = NetDirEntry.splitRawData(reply.reply);
-            auto app = appender!string();
-            //get maximum length of entries
-            auto width = reduce!("max(a,cast(int)b.name.length)")(0,entries) + 1;
-            uint counter;
-            foreach(e; entries.sort) {
-                string pad;
-                counter++;
-                if(!(counter % (columns / width))) {
-                    pad = "\n";
-                }
-                string name;
-                version(Posix) {
-                    if(e.isDir) {
-                        name = "\33[01;34m" ~ e.name;
-                    }
-                    else {
-                        if(e.attributes & octal!100) {
-                            name = "\33[01;32m" ~ e.name;
-                        }
-                        else {
-                            name = "\33[00;37m" ~ e.name;
-                        }
-                    }
-                }
-                else name = e.name;
-                formattedWrite(app,"%-0*s%s", width + 8, name, pad);
-            }
-            writeln(strip(app.data));
+            lsPrettyPrint(NetDirEntry.splitRawData(reply.reply));
         }
         else if(reply.rt == ReplyType.ERROR) {
             stderr.writeln(cast(string) reply.reply);
         }
         else if(reply.rt == ReplyType.DATA_SETUP) {
             //writeln(reply.reply);
+        }
+    }
+    void executeLocalCmd(Command cmd) {
+        if(cmd.cmd in localCommands) {
+            localCommands[cmd.cmd](cmd.arg);
+        }
+        else {
+            stderr.writeln("Unknown command: ", cmd.cmd);
         }
     }
 }

@@ -17,7 +17,8 @@ std.bitmanip,
 std.outbuffer,
 std.regex,
 std.datetime,
-std.format
+std.format,
+std.range
 ;
 version(Posix) import
 core.stdc.config
@@ -164,6 +165,48 @@ static void progressBar(ulong val, ulong total) {
     }
 }
 
+static void lsPrettyPrint(T)(T entries_) if(is(T == NetDirEntry[]) || is(T == DirIterator)) {
+    static if(is(T == DirIterator)) {
+        NetDirEntry[] entries;
+        foreach(DirEntry e; entries_) {
+            entries ~= NetDirEntry(e);
+        }
+    }
+    else {
+        auto entries = entries_;
+    }
+    auto columns = getTermSize().w;
+    auto app = appender!string();
+    //get maximum length of entries
+    auto width = reduce!("max(a,cast(int)b.name.length)")(0, entries.sort) + 1;
+    uint counter;
+    foreach(e; entries) {
+        string pad;
+        counter++;
+        if(!(counter % (columns / width))) {
+            pad = "\n";
+        }
+        string name;
+        version(Posix) {
+            if(e.isDir) {
+                name = "\33[01;34m" ~ e.name;
+            }
+            else {
+                if(e.attributes & octal!100) {
+                    name = "\33[01;32m" ~ e.name;
+                }
+                else {
+                    name = "\33[00;37m" ~ e.name;
+                }
+            }
+        }
+        else name = e.name;
+        formattedWrite(app,"%-0*s%s", width + 8, name, pad);
+    }
+    writeln(strip(app.data));
+    version(Posix) write("\33[00;37m");
+}
+
 abstract class NFT {
 public:
     this() {
@@ -173,7 +216,13 @@ public:
         commands["cpfr"] = &cpfr;
         commands["cptr"] = &cptr;
         commands["du"] = &du;
-        dir = getcwd();
+
+        localCommands["locls"] = &locls;
+        localCommands["locpwd"] = &locpwd;
+        localCommands["locdu"] = &locdu;
+        localCommands["loccd"] = &loccd;
+
+        prevDir = dir = getcwd();
         status = true;
         socks = new SocketSet;
     }
@@ -217,9 +266,12 @@ public:
 
     void sendFile(ref File file, bool progress = false) {
         if(dataSock.isAlive()) {
+            StopWatch timer;
+            TickDuration last = TickDuration.from!"seconds"(0);
+            timer.start();
             ulong bytesSent;
             foreach(ubyte[] buf; file.byChunk(BUFSIZE)) {
-retry:
+            retry:
                 auto bytes = dataSock.send(buf);
                 if(bytes == Socket.ERROR)
                     throw new NetworkErrorException;
@@ -227,7 +279,12 @@ retry:
                     throw new DisconnectException(dataSock);
                 else if(bytes == buf.length) {
                     bytesSent += bytes;
-                    if(progress) progressBar(bytesSent, file.size);
+                    if(progress) {
+                        if(cast(core.time.Duration)(timer.peek() - last) > dur!"msecs"(200)) {
+                            progressBar(bytesSent, file.size);
+                            last = timer.peek();
+                        }
+                    }
                 }
                 else {//retry incomplete send
                     buf = buf[bytes..$];
@@ -235,8 +292,13 @@ retry:
                     goto retry;
                 }
             }
+            timer.stop();
+            if(progress) {
+                version(Windows) writeln();
+                writeln("File uploaded in: ", timer.peek().msecs, " msecs");
+                writefln("Average uploaded speed: %.2f KB/s", (file.size/(timer.peek().to!("msecs",double)()/1000)/1024));
+            }
         }
-        if(progress) writeln();
     }
 
     void receiveFile(ref File file, ulong size, bool progress = false) {
@@ -246,6 +308,9 @@ retry:
             timer.start();
             ulong bytesReceived;
             ubyte[BUFSIZE] buf;
+            socks.reset();
+            socks.add(control);
+            socks.add(dataSock);
             while(bytesReceived < size) {
                 Socket.select(socks, null, null);
                 if(socks.isSet(control)) {
@@ -277,7 +342,7 @@ retry:
             }
             timer.stop();
             if(progress) {
-                writeln();
+                version(Windows) writeln();
                 writeln("File downloaded in: ", timer.peek().msecs, " msecs");
                 writefln("Average download speed: %.2f KB/s", (size/(timer.peek().to!("msecs",double)()/1000)/1024));
             }
@@ -353,39 +418,87 @@ retry:
 protected:
     Array!Command cmdBuf;
     Array!Reply replyBuf;
-    alias bool delegate(string[] args ...) cmd;
+    alias bool delegate(string arg) cmd;
+    alias void delegate(string arg) localCmd;
     cmd[string] commands;
+    localCmd[string] localCommands;
     Socket control;
     Socket dataSock;
     SocketSet socks;
 
 private:
-    //TODO client-side commands
+    //client-side commands
+    void locls(string arg) {
+        string dir = ".";
+        if(arg.length) {
+            dir = strip(arg);
+            if(!dir.exists) {
+                stderr.writeln(dir, ": no such file or directory.");
+                return;
+            }
+        }
+        lsPrettyPrint(dirEntries(dir, SpanMode.shallow));
+    }
 
-    bool ls(string[] args ...) {
+    void loccd(string arg) {
+        if(arg.length) {
+            if(arg == "-") {
+                chdir(prevDir);
+            }
+            else if(arg.exists && arg.isDir) {
+                prevDir = getcwd();
+                chdir(absolutePath(arg));
+            }
+            else {
+                stderr.writeln(arg, ": no such directory.");
+            }
+        }
+        else {
+            chdir(dir);
+        }
+    }
+
+    void locpwd(string arg) {
+        writeln(getcwd());
+    }
+
+    void locdu(string arg) {
+        if(arg.length) {
+            if(arg.exists && arg.isFile) {
+                writeln(dirEntry(arg).size, " bytes");
+                return;
+            }
+            stderr.writeln(arg, ": not a file");
+            return;
+        }
+        stderr.writeln("locdu requires an argument.");
+    }
+
+    //server-side commands
+    bool ls(string arg) {
         auto x = replyBuf.length;
-        if(args.length) {
-//            foreach(arg; args) {
-//                //FIXME handle argument for ls
-//            }
+        string dir_ = dir;
+        if(arg.length && arg.exists && arg.isDir) {
+            dir_ = arg;
         }
         NetDirEntry[] tmp;
-        foreach(entry; filter!"!a.isSymlink"(dirEntries(dir, SpanMode.shallow))) {
+        foreach(entry; filter!(a => !a.isSymlink)(dirEntries(dir_, SpanMode.shallow))) {
             tmp ~= NetDirEntry(entry);
-            tmp[$-1].name = relativePath(entry.name, dir);
+            tmp[$-1].name = baseName(entry.name);
         }
         replyBuf.insertBack(Reply(assumeUnique(tmp)));
         return replyBuf.length == x+1;
     }
 
-    bool du(string[] args ...) {
+    bool du(string arg) {
         auto x = replyBuf.length;
-        if(args.length) {
-            if(args[0].exists && args[0].isFile) {
-                replyBuf.insertBack(Reply(to!string(dirEntry(args[0]).size) ~ " bytes"));
+        if(arg.length) {
+            auto filename = absolutePath(strip(arg), dir);
+            if(filename.exists && filename.isFile) {
+                replyBuf.insertBack(Reply(to!string(dirEntry(filename).size) ~ " bytes"));
             }
             else {
-                replyBuf.insertBack(Reply(args[0] ~ ": not a file"));
+                replyBuf.insertBack(Reply(filename ~ ": not a file."));
             }
         }
         else {
@@ -394,22 +507,22 @@ private:
         return replyBuf.length == x+1;
     }
 
-    bool pwd(string[] args ...) {
+    bool pwd(string arg) {
         auto x = replyBuf.length;
         replyBuf.insertBack(Reply(absolutePath(dir), ReplyType.STRING));
         return replyBuf.length == x+1;
     }
 
-    bool cd(string[] args ...) {
+    bool cd(string arg) {
         auto x = replyBuf.length;
-        if(args.length) {
-            auto str = buildNormalizedPath(absolutePath(args[0], dir));
+        if(arg.length) {
+            auto str = buildNormalizedPath(absolutePath(arg, dir));
             if(str.exists && str.isDir) {
                 dir = str;
                 replyBuf.insertBack(Reply(str, ReplyType.STRING));
             }
             else
-                replyBuf.insertBack(Reply(absolutePath(dir), ReplyType.STRING));
+                replyBuf.insertBack(Reply(to!string(arg) ~ ": no such directory.", ReplyType.ERROR));
         }
         else {
             dir = getcwd();
@@ -434,11 +547,12 @@ private:
         return s;
     }
 
-    bool cpfr(string[] args ...) {
+    //server to client transfer
+    bool cpfr(string arg) {
         auto x = replyBuf.length;
         Reply * reply;
-        if(args.length) {
-            auto filename = absolutePath(args[0], dir);
+        if(arg.length) {
+            auto filename = absolutePath(arg, dir);
             if(filename.exists() && filename.isFile()) {
                 try {
                     auto sock = this.openDataConnection();
@@ -470,7 +584,7 @@ private:
                 }
             }
             else {
-                replyBuf.insertBack(Reply(args[0] ~ ": No such file", ReplyType.ERROR));
+                replyBuf.insertBack(Reply(arg ~ ": No such file", ReplyType.ERROR));
             }
         }
         else {
@@ -479,34 +593,63 @@ private:
         return replyBuf.length == x+1;
     }
 
-    bool cptr(string[] args ...) {
+    //client to server transfer
+    bool cptr(string arg) {
         auto x = replyBuf.length;
-        //TODO client uploading
+        Reply * reply;
+        if(arg.length) {
+            auto filename = baseName(arg);
+            try {
+                auto sock = this.openDataConnection();
+                auto p = sock.localAddress().toPortString();
+                auto port = parse!ushort(p);
+                auto f = File(filename,"wb");
+                auto rb = nativeToBigEndian(port) ~ nativeToBigEndian!ulong(0);
+                reply = new Reply(rb, ReplyType.DATA_SETUP);
+                this.sendMsg(*reply);
+                while(true) {
+                    try {
+                        dataSock = sock.accept();
+                        version(Windows) dataSock.blocking = true;
+                        break;
+                    }
+                    catch(SocketOSException e) {
+                    }
+                }
+                auto rtmp = receiveMsg!Reply();
+                ubyte[ulong.sizeof] tmp = rtmp.reply;
+                receiveFile(f, bigEndianToNative!ulong(tmp));
+            }
+            catch(Exception e) {
+                stderr.writeln(e.msg);
+                reply = new Reply(e.msg, ReplyType.ERROR);
+            }
+            finally {
+                if(reply) {
+                    replyBuf.insertBack(*reply);
+                }
+            }
+        }
+        else {
+            replyBuf.insertBack(Reply("Need an argument", ReplyType.ERROR));
+        }
         return replyBuf.length == x+1;
     }
 
     string dir;
+    string prevDir;
 }
 
 struct Command {
     this(string input) {
-        //separate the command and arguments with regex
-        //also accepts quoted strings for arguments
-        auto argPattern = regex(`[^\s"']+|"([^"]*)"|'([^']*)'`, "g");
-        auto tmp = match(strip(input), argPattern);
-        if(tmp) {
-            cmd = tmp.front.hit;
-            tmp.popFront();
-            foreach(capture; tmp) {
-                if(capture.hit.startsWith(`"`)) {
-                    capture.popFront();
-                }
-                if(capture.hit.length) {
-                    args ~= capture.front;
-                }
-            }
+        auto idx = countUntil(input, ' ');
+        if(idx > 0) {
+            cmd = input[0..idx];
+            arg = strip(input[idx..$]);
         }
-        else cmd = strip(input);
+        else {
+            cmd = strip(input);
+        }
     }
     this(ubyte[] input) {
         //if taking the raw input it should at least be the right type
@@ -515,14 +658,14 @@ struct Command {
         if(tmp.length) {
             cmd = cast(string) tmp[0];
             if(tmp.length > 1) {
-                args = cast(string[]) tmp[1..$];
+                arg = cast(string) tmp[1];
             }
         }
         else cmd = strip(cast(string)input);
     }
 
     @property uint length() {
-        return cast(uint) (uint.sizeof + 1 + cmd.length + 1 + reduce!("a + b.length")(0L,args) + args.length);
+        return cast(uint) (uint.sizeof + 1 + cmd.length + 1 + arg.length);
     }
 
     const(void)[] opCast() {
@@ -533,15 +676,12 @@ struct Command {
         buf.write(cast(ubyte) MsgType.CMD);
         buf.write(cmd);
         buf.write(new ubyte[1]);
-        foreach(arg; args) {
-            buf.write(arg);
-            buf.write(new ubyte[1]);
-        }
+        buf.write(arg);
         return buf.toBytes();
     }
 
     string cmd;
-    string[] args;
+    string arg;
 }
 
 struct Reply {
