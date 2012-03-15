@@ -20,9 +20,8 @@ std.datetime,
 std.format,
 std.range
 ;
-version(Posix) import
-core.stdc.config
-;
+version(Posix) import core.stdc.config;
+version(Windows) import core.sys.windows.windows;
 
 enum MsgType : ubyte {
     CMD,
@@ -108,7 +107,10 @@ struct NetDirEntry {
         return output;
     }
 }
-
+struct Dimensions {
+    ushort w;
+    ushort h;
+}
 version(Posix) {
     extern(C) {
         struct winsize {
@@ -117,11 +119,11 @@ version(Posix) {
             ushort ws_xpixel;
             ushort ws_ypixel;
         };
-        int ioctl (int __fd, c_ulong __request, ...);
+        int ioctl(int __fd, c_ulong __request, ...);
         enum TIOCGWINSZ = 0x5413;
     }
     auto getTermSize() {
-        Tuple!(ushort,"w", ushort,"h") dims;
+        Dimensions dims;
         winsize w;
         ioctl(0, TIOCGWINSZ, &w);
         dims.w = w.ws_col;
@@ -129,12 +131,16 @@ version(Posix) {
         return dims;
     }
 }
+version(Windows) {
+    auto getTermSize() {
+        CONSOLE_SCREEN_BUFFER_INFO bi;
+        GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &bi);
+        return cast(Dimensions) bi.dwSize;
+    }
+}
 
 static void progressBar(ulong val, ulong total) {
-    ushort columns = 80;
-    version(Posix) {
-        columns = getTermSize().w;
-    }
+    ushort columns = getTermSize().w;
     auto width = columns - 9;
     auto app = appender!string();
     app.reserve(columns);
@@ -156,10 +162,11 @@ static void progressBar(ulong val, ulong total) {
     }
 
     write(strip(app.data));
+
     version(Posix) {
         write("\n\33[1A\33[2K");
     }
-    else {
+    version(Windows) {
         write("\r");
         stdout.flush();
     }
@@ -177,16 +184,22 @@ static void lsPrettyPrint(T)(T entries_) if(is(T == NetDirEntry[]) || is(T == Di
     }
     auto columns = getTermSize().w;
     auto app = appender!string();
+    //strip off anything other than the file/dir name
+    entries = array(map!(delegate (NetDirEntry e) {e.name = baseName(e.name); return e;})(entries));
     //get maximum length of entries
-    auto width = reduce!("max(a,cast(int)b.name.length)")(0, entries.sort) + 1;
+    auto width = reduce!((a,b) => max(a,cast(int)b.name.length))(0, entries.sort) + 1;
+    if(width > columns / 2)
+        width = columns;
     uint counter;
     foreach(e; entries) {
         string pad;
         counter++;
         if(!(counter % (columns / width))) {
-            pad = "\n";
+            version(Windows){}
+            else pad = "\n";
         }
         string name;
+        ubyte n;
         version(Posix) {
             if(e.isDir) {
                 name = "\33[01;34m" ~ e.name;
@@ -199,9 +212,10 @@ static void lsPrettyPrint(T)(T entries_) if(is(T == NetDirEntry[]) || is(T == Di
                     name = "\33[00;37m" ~ e.name;
                 }
             }
+            n = 8;
         }
         else name = e.name;
-        formattedWrite(app,"%-0*s%s", width + 8, name, pad);
+        formattedWrite(app,"%-0*s%s", width + n, name, pad);
     }
     writeln(strip(app.data));
     version(Posix) write("\33[00;37m");
@@ -603,10 +617,9 @@ private:
                 auto sock = this.openDataConnection();
                 auto p = sock.localAddress().toPortString();
                 auto port = parse!ushort(p);
-                auto f = File(filename,"wb");
                 auto rb = nativeToBigEndian(port) ~ nativeToBigEndian!ulong(0);
                 reply = new Reply(rb, ReplyType.DATA_SETUP);
-                this.sendMsg(*reply);
+                sendMsg(*reply);
                 while(true) {
                     try {
                         dataSock = sock.accept();
@@ -618,6 +631,7 @@ private:
                 }
                 auto rtmp = receiveMsg!Reply();
                 ubyte[ulong.sizeof] tmp = rtmp.reply;
+                auto f = File(filename,"wb");
                 receiveFile(f, bigEndianToNative!ulong(tmp));
             }
             catch(Exception e) {
