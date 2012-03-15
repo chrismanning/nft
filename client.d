@@ -135,28 +135,23 @@ if(direction == "up" || direction == "down") {
         ubyte[8] t2 = ds.reply[2..10];
         auto fileSize = bigEndianToNative!ulong(t2);
         client.connectDataConnection(new InternetAddress(server, port));
-        static if(direction == "down") {
-            auto f = File(baseName(cmd.arg), "wb");
-            try {
+
+        try {
+            static if(direction == "down") {
+                auto f = File(baseName(cmd.arg), "wb");
                 client.receiveFile(f, fileSize, true);
                 return true;
             }
-            catch(Exception e) {
-                stderr.writeln(e.msg);
-                return false;
-            }
-        }
-        else {
-            try {
+            else {
                 client.sendMsg(Reply(nativeToBigEndian(std.file.getSize(cmd.arg)),ReplyType.DATA_SETUP));
                 auto f = File(cmd.arg, "rb");
                 client.sendFile(f, true);
                 return true;
             }
-            catch(Exception e) {
-                stderr.writeln(e.msg);
-                return false;
-            }
+        }
+        catch(Exception e) {
+            stderr.writeln(e.msg);
+            return false;
         }
     }
     else {
