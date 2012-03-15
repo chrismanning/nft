@@ -1,16 +1,26 @@
 DMD ?= dmd
 FLAGS = -gc -inline
 
+ifeq ($(OSTYPE), gnu-linux)
+	OBJ = o
+	EXE =
+	RM = rm
+else
+	OBJ = obj
+	EXE = .exe
+	RM = del
+endif
+
 all: server client
 
-server: server.o util.o
+server: server.$(OBJ) util.$(OBJ)
 	$(DMD) $(FLAGS) $^ -of$@
 
-client: client.o util.o
+client: client.$(OBJ) util.$(OBJ)
 	$(DMD) $(FLAGS) $^ -of$@
 
-%.o: %.d
+%.$(OBJ): %.d
 	$(DMD) $(FLAGS) -c $<
 
 clean:
-	rm -f *.o client server
+	$(RM) *.$(OBJ) client$(EXE) server$(EXE)
