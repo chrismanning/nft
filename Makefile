@@ -1,14 +1,14 @@
 DMD ?= dmd
 FLAGS = -gc -inline
 
-ifeq ($(OSTYPE), gnu-linux)
-	OBJ = o
-	EXE =
-	RM = rm
-else
+ifeq ($(OS), Windows_NT)
 	OBJ = obj
 	EXE = .exe
 	RM = del
+else
+	OBJ = o
+	EXE =
+	RM = rm
 endif
 
 all: server client
