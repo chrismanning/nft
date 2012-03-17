@@ -7,7 +7,8 @@ std.conv,
 std.bitmanip,
 std.path,
 std.format,
-std.array
+std.array,
+std.file
 ;
 import util;
 
@@ -101,7 +102,6 @@ void main(string[] args) {
             }
             if(verbose) writeln("Sending command to server...");
             try {
-                client.sendMsg(c);
                 if(c.cmd == "cpfr") {
                     if(!fileTransferHandler!"down"(client, c)) {
                         continue;
@@ -112,6 +112,8 @@ void main(string[] args) {
                         continue;
                     }
                 }
+                else
+                    client.sendMsg(c);
 
                 //wait for reply
                 if(verbose) writeln("Waiting for reply from server...");
@@ -130,36 +132,59 @@ void main(string[] args) {
 
 bool fileTransferHandler(string direction)(Client client, ref Command cmd)
 if(direction == "up" || direction == "down") {
-    auto ds = client.receiveMsg!Reply();
-    if(ds.rt == ReplyType.DATA_SETUP) {
-        if(verbose) writeln("Starting data connection...");
-        ubyte[2] t1 = ds.reply[0..2];
-        auto port = bigEndianToNative!ushort(t1);
-        ubyte[8] t2 = ds.reply[2..10];
-        auto fileSize = bigEndianToNative!ulong(t2);
-        client.connectDataConnection(new InternetAddress(server, port));
+    static if(direction == "down") {
+        client.sendMsg(cmd);
+        auto ds = client.receiveMsg!Reply();
+        if(ds.rt == ReplyType.DATA_SETUP) {
+            if(verbose) writeln("Starting data connection...");
+            ubyte[2] t1 = ds.reply[0..2];
+            auto port = bigEndianToNative!ushort(t1);
+            ubyte[8] t2 = ds.reply[2..10];
+            auto fileSize = bigEndianToNative!ulong(t2);
+            client.connectDataConnection(new InternetAddress(server, port));
 
-        try {
-            static if(direction == "down") {
+            try {
                 auto f = File(baseName(cmd.arg), "wb");
                 client.receiveFile(f, fileSize, true);
                 return true;
             }
-            else {
-                client.sendMsg(Reply(nativeToBigEndian(std.file.getSize(cmd.arg)),ReplyType.DATA_SETUP));
+            catch(Exception e) {
+                stderr.writeln(e.msg);
+                return false;
+            }
+        }
+        else {
+            stderr.writeln(cast(string) ds.reply);
+            return false;
+        }
+    }
+    else {
+        try {
+            if(!cmd.arg.exists)
+                throw new Exception(cmd.arg ~ ": No such file");
+            client.sendMsg(cmd);
+            auto ds = client.receiveMsg!Reply();
+            if(ds.rt == ReplyType.DATA_SETUP) {
+                if(verbose) writeln("Starting data connection...");
+                ubyte[2] t1 = ds.reply[0..2];
+                auto port = bigEndianToNative!ushort(t1);
+                ubyte[8] t2 = ds.reply[2..10];
+                auto fileSize = bigEndianToNative!ulong(t2);
+                client.connectDataConnection(new InternetAddress(server, port));
+                client.sendMsg(Reply(nativeToBigEndian(getSize(cmd.arg)),ReplyType.DATA_SETUP));
                 auto f = File(cmd.arg, "rb");
                 client.sendFile(f, true);
                 return true;
+            }
+            else {
+                stderr.writeln(cast(string) ds.reply);
+                return false;
             }
         }
         catch(Exception e) {
             stderr.writeln(e.msg);
             return false;
         }
-    }
-    else {
-        stderr.writeln(cast(string) ds.reply);
-        return false;
     }
 }
 
