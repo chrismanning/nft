@@ -332,7 +332,7 @@ public:
             while(bytesReceived < size) {
                 socks.add(control);
                 socks.add(dataSock);
-                Socket.select(socks, null, null);
+                Socket.select(socks, null, null, dur!"seconds"(5));
                 if(socks.isSet(control)) {
                     Reply r = receiveMsg!Reply();
                     if(r.rt == ReplyType.ERROR) {
