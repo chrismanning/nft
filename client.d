@@ -156,10 +156,14 @@ if(direction == "up" || direction == "down") {
                 return true;
             }
         }
-        catch(Exception e) {
+        catch(FileExistsException e) {
             stderr.writeln(e.msg);
             client.dataSock.close();
             client.receiveMsg!Reply();
+            return false;
+        }
+        catch(Exception e) {
+            stderr.writeln(e.msg);
             return false;
         }
     }

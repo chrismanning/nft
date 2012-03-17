@@ -61,6 +61,12 @@ class WrongMsgException : Exception {
     }
 }
 
+class FileExistsException : Exception {
+    this(string msg) {
+        super(msg);
+    }
+}
+
 enum BUFSIZE = 8 * 1024;
 
 template isMsgType(T) {
@@ -716,7 +722,7 @@ private:
                 ubyte[ulong.sizeof] tmp = rtmp.reply;
                 auto fileSize = bigEndianToNative!ulong(tmp);
                 if(filename.exists && getSize(filename) == fileSize) {
-                    throw new Exception("File transfer not needed");
+                    throw new FileExistsException("File transfer not needed");
                 }
                 auto f = File(filename,"wb");
                 receiveFile(f, fileSize);
