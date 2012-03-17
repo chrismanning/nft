@@ -1,0 +1,78 @@
+\documentclass[a4paper]{article}
+\usepackage[a4paper]{geometry}
+\usepackage{listings}
+\lstset{language=C}
+\usepackage{biblatex}
+\bibliography{rfc,misc}
+
+%opening
+\title{CTEC3604 -- Multi-service Networks\\
+Network File Transfer Application}
+\author{Christian Manning}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+
+\pagebreak
+
+\section{Introduction}
+
+The aim of this project is to create an application which utilises TCP to transfer files over a network. The application is required to use Berkeley sockets and a client-server architecture.
+
+\section{Similar Applications}
+
+This section contains the evaluations of similar applications or protocols in an attempt to gather the needed requirements for this project.
+
+\subsection{File Transfer Protocol (FTP)}
+
+\textit{FTP} \cite{rfc959} is a protocol specifically designed for the transfer of files using TCP. It uses a client-server architecture. For each client connected to the server, there is a control connection which is initiated by connecting to a pre-specified port (default 21). This control connection is the means by which commands are send from the client to the server, and replies are sent from the server to a client. This is achieved using the \textit{Telnet} protocol \cite{rfc854}. Each client is usually maintained in a separate thread.
+
+When a command sent by the client requires data in reply, another connection is established specifically for data transfers, from the data port (default 20). Because of it using multiple ports, \textit{FTP} is known as an out-of-band protocol. This data can be text or binary data and can be sent in blocks, as a stream or compressed.
+
+\textit{FTP} requires clients to login with a username and password, though the username may be 'anonymous' if the server is configured to allow anonymous access. The client then has the same access and permissions as that of the user they are logged in. The transferred data, commands and replies themselves are not encrypted in any way.
+
+The client can provide a shell-like command line interface with which the user enters commands and text replies are shown, or a graphical user interface (GUI). Some commands are as follows: LIST (list directory entries), CWD (change working directory), DELE (delete file), RETR (transfer file), et al. These commands allow the user to browse the remote file system so that the available files can become known.
+
+\subsection{Secure Copy (SCP)}
+
+\textit{SCP} is a secure network equivalent of the common \textit{cp} (file copy) shell command. It uses the \textit{SSH} \cite{rfc4253} protocol, though provides no shell access, only the transferral of files. Because of it being based on \textit{SSH} it is very secure as all network communications undertaken by \textit{SCP} are encrypted. Its simple interface limits its usefulness to situations where only a simple copy is needed from one host to another. The remote file systems cannot be browsed as with \textit{FTP}, requiring knowledge from the user of the file system layout if the file is destined for anywhere other than the users remote home directory.
+
+The security features of this application are one of its primary benefits, but they are beyond the scope of this project.
+
+\subsection{rsync}
+
+\textit{rsync} is an application intended to replace \textit{SCP} with a focus on synchronising files and directories across computers, which makes it a popular backup tool. It does this by comparing the checksums (or sometimes the modification date) of files on both hosts and if they differ, the transfer is initiated. Its interface is similar to that of \textit{SCP} and is highly script-able. \textit{rsync} can operate in daemon mode by listening on its default TCP port of 873, or it can operate using \textit{SSH} requiring the \textit{rsync} client to be on both hosts. Daemon mode is generally used for the purpose of mirroring servers, minimising data transfers for the server.
+
+While \textit{rsync} is more featureful than \textit{SCP}, it still doesn't have the ability to browse the remote file system like \textit{FTP}, requiring an alternate application (eg.\ \textit{SSH}) for this functionality.
+
+\section{Functional Requirements}
+
+The following requirements were realised from determining which of the above existing applications' features were suitable for this project and combining some.
+
+\begin{itemize}
+ \item Client-server architecture.
+ \item Shell-like user interface.
+ \item Ability to browse the file system client and server-side, i.e.\ change working directory, list files, get file size, etc.
+ \item Transfer files from the server to the client, and vice versa.
+ \item Separate control connection and data connection. Use the data connection for binary data only; the control connection can accept textual replies.
+ \item Maintain each client in its own thread.
+ \item If the file to be transferred exists on both hosts, the files sizes are compared to determine whether the transfer is necessary. This is a much simpler method than checksums, but may mean that some transfers wont occur as intended.
+\end{itemize}
+
+\section{Implementation}
+
+Both the server and client were implemented using the D programming language \cite{dlang} using the standard library with no external libraries.
+
+\section{Testing}
+
+This section will show tests of one of the major features listed above: the file transfers themselves. The tests have been carried out over a Gigabit Ethernet LAN with both the client and server hosts running GNU/Linux. These tests will demonstrate the applications reliability in this situation and will also show its error handling capabilities.
+
+
+
+\section{Evaluation}
+
+\printbibliography
+\end{document}
