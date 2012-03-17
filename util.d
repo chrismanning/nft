@@ -230,11 +230,15 @@ public:
         commands["cpfr"] = &cpfr;
         commands["cptr"] = &cptr;
         commands["du"] = &du;
+        commands["rm"] = &rm;
+        commands["mkdir"] = &mkdir_;
 
         localCommands["locls"] = &locls;
         localCommands["locpwd"] = &locpwd;
         localCommands["locdu"] = &locdu;
         localCommands["loccd"] = &loccd;
+        localCommands["locrm"] = &locrm;
+        localCommands["locmkdir"] = &locmkdir;
 
         prevDir = dir = getcwd();
         status = true;
@@ -488,6 +492,31 @@ private:
         stderr.writeln("locdu requires an argument.");
     }
 
+    void locrm(string arg) {
+        if(arg.length) {
+            try {
+                if(arg.isDir)
+                    arg.rmdir();
+                else if(arg.isFile)
+                    arg.remove();
+            }
+            catch(FileException e) {
+                stderr.writeln(e.msg);
+            }
+        }
+    }
+
+    void locmkdir(string arg) {
+        if(arg.length) {
+            try {
+                mkdir(arg);
+            }
+            catch(FileException e) {
+                stderr.writeln(e.msg);
+            }
+        }
+    }
+
     //server-side commands
     bool ls(string arg) {
         auto x = replyBuf.length;
@@ -500,7 +529,12 @@ private:
             tmp ~= NetDirEntry(entry);
             tmp[$-1].name = baseName(entry.name);
         }
-        replyBuf.insertBack(Reply(assumeUnique(tmp)));
+        if(tmp.length) {
+            replyBuf.insertBack(Reply(assumeUnique(tmp)));
+        }
+        else {
+            replyBuf.insertBack(Reply("Nothing here"));
+        }
         return replyBuf.length == x+1;
     }
 
@@ -536,11 +570,43 @@ private:
                 replyBuf.insertBack(Reply(str, ReplyType.STRING));
             }
             else
-                replyBuf.insertBack(Reply(to!string(arg) ~ ": no such directory.", ReplyType.ERROR));
+                replyBuf.insertBack(Reply(arg ~ ": no such directory.", ReplyType.ERROR));
         }
         else {
             dir = getcwd();
             replyBuf.insertBack(Reply(dir, ReplyType.STRING));
+        }
+        return replyBuf.length == x+1;
+    }
+
+    bool rm(string arg) {
+        auto x = replyBuf.length;
+        if(arg.length) {
+            try {
+                if(arg.isDir)
+                    arg.rmdir();
+                else if(arg.isFile)
+                    arg.remove();
+                replyBuf.insertBack(Reply("Removed " ~ arg, ReplyType.STRING));
+            }
+            catch(FileException e) {
+                replyBuf.insertBack(Reply(e.msg, ReplyType.ERROR));
+            }
+        }
+        return replyBuf.length == x+1;
+    }
+
+    bool mkdir_(string arg) {
+        auto x = replyBuf.length;
+        if(arg.length) {
+            try {
+                mkdir(arg);
+                replyBuf.insertBack(Reply("Created " ~ arg, ReplyType.STRING));
+            }
+            catch(FileException e) {
+                stderr.writeln(e.msg);
+                replyBuf.insertBack(Reply(e.msg, ReplyType.ERROR));
+            }
         }
         return replyBuf.length == x+1;
     }

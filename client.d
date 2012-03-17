@@ -16,11 +16,14 @@ string server = "127.0.0.1";
 bool verbose;
 bool argUsage;
 
-enum usage = ["pwd"  :"pwd       : Print current (remote) working directory.",
-              "cd"   :"cd [dir]  : Change (remote) working directory to [dir] or back to the default if [dir] is empty.",
-              "ls"   :"ls [dir]  : List (remote) [dir] entries, or current working directory if [dir] is empty.",
-              "cptr" :"cptr file : Upload file to server.",
-              "cpfr" :"cpfr file : Download file from server."
+enum usage = ["pwd"  :"[loc]pwd       : Print current working directory.",
+              "cd"   :"[loc]cd [dir]  : Change working directory to [dir] or back to the default if [dir] is empty.",
+              "ls"   :"[loc]ls [dir]  : List [dir] entries, or current working directory if [dir] is empty.",
+              "du"   :"[loc]du file   : Get size of file in bytes.",
+              "mkdir":"[loc]mkdir dir : Make directory dir.",
+              "rm"   :"[loc]rm name   : Remove file or empty directory called name.",
+              "cptr" :"cptr file      : Upload file to server.",
+              "cpfr" :"cpfr file      : Download file from server."
              ];
 
 static void printArgUsage() {
@@ -82,6 +85,7 @@ void main(string[] args) {
         if(buf.length) {
             if(buf == "break") break;
             if(buf == "usage" || buf == "help") {
+                writeln("Prefix 'loc' denotes local commands.\n'[...]' means optional.");
                 foreach(string key; client.getCommands.sort) {
                     writeln(usage[key]);
                 }
