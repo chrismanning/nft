@@ -327,9 +327,9 @@ public:
             ulong bytesReceived;
             ubyte[BUFSIZE] buf;
             socks.reset();
-            socks.add(control);
-            socks.add(dataSock);
             while(bytesReceived < size) {
+                socks.add(control);
+                socks.add(dataSock);
                 Socket.select(socks, null, null);
                 if(socks.isSet(control)) {
                     Reply r = receiveMsg!Reply();
@@ -337,6 +337,7 @@ public:
                         stderr.writeln(cast(string) r.reply);
                         break;
                     }
+                    replyBuf.insertBack(r);
                 }
                 if(socks.isSet(dataSock)) {
                     auto bytes = dataSock.receive(buf);
@@ -357,6 +358,7 @@ public:
                     else
                         throw new Exception("Wrong amount of data received");
                 }
+                socks.reset();
             }
             timer.stop();
             if(progress) {
@@ -387,6 +389,11 @@ public:
     }
 
     Msg receiveMsg(Msg)() if(isMsgType!Msg) {
+        static if(is(Msg == Reply)) {
+            if(replyBuf.length) {
+                return replyBuf.removeAny();
+            }
+        }
         //first 5 bytes should be size of data (4 bytes) + msg type (1 byte)
         ubyte[5] buf;
         auto bytes = control.receive(buf);
@@ -652,6 +659,7 @@ private:
                         }
                     }
                     sendFile(f);
+                    reply = new Reply("File successfully sent from server");
                 }
                 catch(Exception e) {
                     stderr.writeln(e.msg);
@@ -661,6 +669,7 @@ private:
                     if(reply) {
                         replyBuf.insertBack(*reply);
                     }
+                    dataSock.close();
                 }
             }
             else {
@@ -697,8 +706,13 @@ private:
                 }
                 auto rtmp = receiveMsg!Reply();
                 ubyte[ulong.sizeof] tmp = rtmp.reply;
+                auto fileSize = bigEndianToNative!ulong(tmp);
+                if(filename.exists && getSize(filename) == fileSize) {
+                    throw new Exception("File transfer not needed");
+                }
                 auto f = File(filename,"wb");
-                receiveFile(f, bigEndianToNative!ulong(tmp));
+                receiveFile(f, fileSize);
+                reply = new Reply("File successfully received at server");
             }
             catch(Exception e) {
                 stderr.writeln(e.msg);
@@ -708,6 +722,7 @@ private:
                 if(reply) {
                     replyBuf.insertBack(*reply);
                 }
+                dataSock.close();
             }
         }
         else {

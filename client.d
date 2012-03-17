@@ -7,7 +7,8 @@ std.conv,
 std.bitmanip,
 std.path,
 std.format,
-std.array
+std.array,
+std.file
 ;
 import util;
 
@@ -142,12 +143,15 @@ if(direction == "up" || direction == "down") {
 
         try {
             static if(direction == "down") {
+                if(baseName(cmd.arg).exists && getSize(baseName(cmd.arg)) == fileSize) {
+                    throw new Exception("File transfer not needed");
+                }
                 auto f = File(baseName(cmd.arg), "wb");
                 client.receiveFile(f, fileSize, true);
                 return true;
             }
             else {
-                client.sendMsg(Reply(nativeToBigEndian(std.file.getSize(cmd.arg)),ReplyType.DATA_SETUP));
+                client.sendMsg(Reply(nativeToBigEndian(getSize(cmd.arg)),ReplyType.DATA_SETUP));
                 auto f = File(cmd.arg, "rb");
                 client.sendFile(f, true);
                 return true;
@@ -155,6 +159,8 @@ if(direction == "up" || direction == "down") {
         }
         catch(Exception e) {
             stderr.writeln(e.msg);
+            client.dataSock.close();
+            client.receiveMsg!Reply();
             return false;
         }
     }
