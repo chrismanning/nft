@@ -273,6 +273,8 @@ public:
         dataSock = new TcpSocket;
         socks.add(dataSock);
 
+        dataSock.setOption(SocketOptionLevel.SOCKET, SocketOption.RCVTIMEO, dur!"seconds"(15));
+
         version(Windows) dataSock.blocking = true;
         try {
             dataSock.connect(remote);
@@ -652,6 +654,7 @@ private:
                     while(true) {
                         try {
                             dataSock = sock.accept();
+                            dataSock.setOption(SocketOptionLevel.SOCKET, SocketOption.RCVTIMEO, dur!"seconds"(15));
                             version(Windows) dataSock.blocking = true;
                             break;
                         }
@@ -698,6 +701,7 @@ private:
                 while(true) {
                     try {
                         dataSock = sock.accept();
+                        dataSock.setOption(SocketOptionLevel.SOCKET, SocketOption.RCVTIMEO, dur!"seconds"(15));
                         version(Windows) dataSock.blocking = true;
                         break;
                     }
