@@ -341,7 +341,6 @@ public:
                         stderr.writeln(cast(string) r.reply);
                         break;
                     }
-                    replyBuf.insertBack(r);
                 }
                 if(socks.isSet(dataSock)) {
                     auto bytes = dataSock.receive(buf);
@@ -714,12 +713,8 @@ private:
                 }
                 auto rtmp = receiveMsg!Reply();
                 ubyte[ulong.sizeof] tmp = rtmp.reply;
-                auto fileSize = bigEndianToNative!ulong(tmp);
-                if(filename.exists && getSize(filename) == fileSize) {
-                    throw new Exception("File transfer not needed");
-                }
                 auto f = File(filename,"wb");
-                receiveFile(f, fileSize);
+                receiveFile(f, bigEndianToNative!ulong(tmp));
                 reply = new Reply("File successfully received at server");
             }
             catch(Exception e) {
