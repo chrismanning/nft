@@ -66,16 +66,19 @@ void main(string[] args) {
     auto client = new Client;
     client.attachControlSocket(control);
     //receive welcome message
-    //FIXME make a proper welcome message
-    ubyte[1024] wbuf;
+    ubyte[256] wbuf;
     auto bytes = control.receive(wbuf);
     if(bytes == Socket.ERROR) {
         return;
     }
     if(wbuf.length > int.sizeof) {
-        ubyte[uint.sizeof] buf = wbuf[0..uint.sizeof];
+        if(!wbuf[].startsWith(ID)) {
+            stderr.writeln("Not NFT welcome message");
+            return;
+        }
+        ubyte[uint.sizeof] buf = wbuf[ID.length..uint.sizeof+ID.length];
         auto tmp = bigEndianToNative!uint(buf);
-        writeln(Command(wbuf[uint.sizeof..uint.sizeof+tmp]).cmd);
+        writeln(Command(wbuf[uint.sizeof+ID.length..uint.sizeof+tmp]).cmd);
     }
 
     string buf;
@@ -116,11 +119,7 @@ void main(string[] args) {
                 auto reply = client.receiveMsg!Reply();
                 client.interpretReply(reply);
             }
-            catch(DisconnectException e) {
-                stderr.writeln(e.msg);
-                break;
-            }
-            catch(NetworkErrorException e) {
+            catch(Exception e) {
                 stderr.writeln(e.msg);
                 break;
             }

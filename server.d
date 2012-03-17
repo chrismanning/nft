@@ -131,7 +131,7 @@ void clientHandler(Tid sockHand, shared(Socket) sock) {
     bool run = true;
     if(verbose) writefln("Connection from %s established", to!string(server.remoteAddress()));
     //send welcome message
-    server.control.send(cast(const(void)[]) Command("WELCOME"));
+    server.control.send(cast(ubyte[]) ID ~ cast(const(void)[]) Command("WELCOME"));
     //FIXME handle exceptions
     while(server.status && run) {
         if(verbose) writeln("Waiting for command...");

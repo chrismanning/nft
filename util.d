@@ -36,6 +36,8 @@ enum ReplyType : ubyte {
     DATA_SETUP
 }
 
+enum ID = "NFTX";
+
 class DisconnectException : Exception {
     this(Address raddr) {
         super(to!string(raddr) ~ " disconnected");
@@ -377,8 +379,8 @@ public:
     }
 
     void sendMsg(Msg)(Msg msg) if(isMsgType!Msg) {
-        auto bytes = control.send(cast(const(void)[]) msg);
-        if(bytes == msg.length) {
+        auto bytes = control.send(cast(ubyte[]) ID ~ cast(const(void)[]) msg);
+        if(bytes == msg.length + ID.length) {
             success!Msg();
             return;
         }
@@ -396,11 +398,13 @@ public:
                 return replyBuf.removeAny();
             }
         }
-        //first 5 bytes should be size of data (4 bytes) + msg type (1 byte)
-        ubyte[5] buf;
-        auto bytes = control.receive(buf);
+        //first 9 bytes should be ID (4 bytes) + size of data (4 bytes) + msg type (1 byte)
+        ubyte[9] buf_;
+        auto bytes = control.receive(buf_);
+        enforceEx!Exception(buf_[].startsWith(ID), "Not an NFT message");
+        auto buf = buf_[4..$];
 
-        if(bytes == buf.length) {
+        if(bytes == buf.length + ID.length) {
             static if(is(Msg == Command)) {
                 if(buf[int.sizeof] != MsgType.CMD) throw new WrongMsgException(typeid(Command),typeid(Reply));
             }
