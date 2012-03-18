@@ -3,6 +3,7 @@
 \usepackage{listings}
 \lstset{language=C}
 \usepackage{biblatex}
+\usepackage{array}
 \bibliography{rfc,misc}
 
 %opening
@@ -59,17 +60,64 @@ The following requirements were realised from determining which of the above exi
  \item Transfer files from the server to the client, and vice versa.
  \item Separate control connection and data connection. Use the data connection for binary data only; the control connection can accept textual replies.
  \item Maintain each client in its own thread.
- \item If the file to be transferred exists on both hosts, the files sizes are compared to determine whether the transfer is necessary. This is a much simpler method than checksums, but may mean that some transfers wont occur as intended.
 \end{itemize}
 
 \section{Implementation}
 
-Both the server and client were implemented using the D programming language \cite{dlang} using the standard library with no external libraries.
+Both the server and client were implemented using the D programming language \cite{dlang} using the standard library with no external libraries. Version 2.058 of the compiler, runtime and standard library was used throughout the implementation of this project.
 
 \section{Testing}
 
-This section will show tests of one of the major features listed above: the file transfers themselves. The tests have been carried out over a Gigabit Ethernet LAN with both the client and server hosts running GNU/Linux. These tests will demonstrate the applications reliability in this situation and will also show its error handling capabilities.
+This section will show tests of one of the major features listed above: the file transfers themselves. The tests have been carried out over a Gigabit Ethernet LAN with both the client and server hosts running GNU/Linux. These tests will demonstrate the applications reliability in this situation and will also show its error handling capabilities. All files used are randomly generated.
 
+$C$ denotes the client, $S$ denotes the server, $\rightarrow$ or $\leftarrow$ denotes direction of transfer. The files used in these tests are identified by their size.\\
+\begin{tabular}{|m{0.15cm}| m{3cm} | m{2.5cm} | m{7.2cm} |}
+\hline
+ \# & Test  & Expected Result & Actual Result \\ \hline
+ 1 & 100MB file $S \rightarrow C$ & MD5 checksums match &
+  \begin{tabular}{r@{: }l}
+  original & 8ddeb39c79c6429d684bd69a3c18a692 \\
+  got & 8ddeb39c79c6429d684bd69a3c18a692 \\
+  \end{tabular}
+ \\ \hline
+ 2 & 1000MB file $S \rightarrow C$ & MD5 checksums match &
+  \begin{tabular}{r@{: }l}
+  original & 845087542715041a9241c07764c5bfb0 \\
+  got & 845087542715041a9241c07764c5bfb0 \\
+  \end{tabular} \\ \hline
+ 3 & 4.5GB file $S \rightarrow C$ & MD5 checksums match &
+  \begin{tabular}{r@{: }l}
+  original & 6faa2c90b333573cc040cede7203592e \\
+  got & 6faa2c90b333573cc040cede7203592e \\
+  \end{tabular} \\ \hline
+ 4 & 200MB file $C \rightarrow S$ & MD5 checksums match &
+  \begin{tabular}{r@{: }l}
+  original & 08c2a37ef2bfa7c529a8d0071e64f9c0 \\
+  got & 08c2a37ef2bfa7c529a8d0071e64f9c0 \\
+  \end{tabular}
+ \\ \hline
+ 5 & 2000MB file $C \rightarrow S$ & MD5 checksums match &
+  \begin{tabular}{r@{: }l}
+  original & 2963e7928261f9c7dd3386c86f73a330 \\
+  got & 2963e7928261f9c7dd3386c86f73a330 \\
+  \end{tabular} \\ \hline
+ 6 & 3.5GB file $C \rightarrow S$ & MD5 checksums match &
+  \begin{tabular}{r@{: }l}
+  original & d1acc5f957330dfdfedac7ab152d3937 \\
+  got & d1acc5f957330dfdfedac7ab152d3937 \\
+  \end{tabular} \\ \hline
+ 7 & User interrupt on client during transfer (ctrl-c) & Server safely stops operations on client & Server safely stops operations on client. Server messages detailed below. \\ \hline
+ 8 & Remove the Ethernet cable during transfer & TCP connection will eventually time out & TCP connection times out after 10+ minutes. If the cable is reconnected in this time, the transfer resumes successfully. \\ \hline
+\end{tabular}\\
+
+The following messages are produced by the server instance during test number 7, accompanied by some short explanations.\begin{description}
+ \item [A network error occurred] Transfer stops.
+ \item [Sending reply...] Tries to send the last reply in the buffer. No exception is thrown.
+ \item [Waiting for command...] The call to receive returns 0. A DisconnectException is thrown based on this error code.
+ \item [192.168.0.3:42481 disconnected] DisconnectException is caught and handled, printing its message.
+ \item [Client thread ending] Client thread safely ending.
+ \item [Removing socket. No. clients: 0] Client control socket removed and the client count is updated.
+\end{description}
 
 
 \section{Evaluation}
