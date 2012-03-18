@@ -341,6 +341,7 @@ public:
                         stderr.writeln(cast(string) r.reply);
                         break;
                     }
+                    replyBuf.insertBack(r);
                 }
                 if(socks.isSet(dataSock)) {
                     auto bytes = dataSock.receive(buf);
