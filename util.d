@@ -401,6 +401,14 @@ public:
         //first 9 bytes should be ID (4 bytes) + size of data (4 bytes) + msg type (1 byte)
         ubyte[9] buf_;
         auto bytes = control.receive(buf_);
+
+        if(bytes == 0) {
+            throw new DisconnectException(control);
+        }
+        else if(bytes == Socket.ERROR) {
+            throw new NetworkErrorException;
+        }
+
         enforceEx!Exception(buf_[].startsWith(ID), "Not an NFT message");
         auto buf = buf_[4..$];
 
@@ -420,14 +428,7 @@ public:
                 return Msg(buf[int.sizeof] ~ buffer);
             }
         }
-        if(bytes == 0) {
-            throw new DisconnectException(control);
-        }
-        else if(bytes == Socket.ERROR) {
-            throw new NetworkErrorException;
-        }
-        else
-            throw new Exception("Wrong amount of data received");
+        throw new Exception("Wrong amount of data received");
     }
 
     auto remoteAddress() {
