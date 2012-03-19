@@ -56,8 +56,8 @@ void main(string[] args) {
     if(verbose) writeln("Main thread ending...");
 }
 
+shared(uint) clients;
 void listen(Tid mainThread) {
-    Tid[] clients;
     Socket listener = new TcpSocket;
 
     //set listener non-blocking so that this thread can receive messages
@@ -82,17 +82,6 @@ void listen(Tid mainThread) {
     while(run) {
         try {
             receiveTimeout(dur!"msecs"(100), //this blocks--stopping accept from using too many cycles
-                (Tid thread) {
-                    if(thread != mainThread) {
-                        foreach(i,t; clients) {
-                            if(t == thread) {
-                                clients = clients[0..i] ~ clients[i+1..$];
-                                if(verbose) writeln("Removing client. No. clients: ", clients.length);
-                                break;
-                            }
-                        }
-                    }
-                },
                 (OwnerTerminated e) {
                     //stop doing stuff when main thread ends
                     run = false;
@@ -104,11 +93,8 @@ void listen(Tid mainThread) {
             );
             auto sock = listener.accept();
             version(Windows) sock.blocking = true;
-            clients ~= spawn(&clientHandler, thisTid, cast(shared) sock);
-            if(verbose) {
-                writeln("Adding client. No. clients: ", clients.length);
-                writeln(wait);
-            }
+            spawn(&clientHandler, thisTid, cast(shared) sock);
+            if(verbose) writeln(wait);
         }
         catch(SocketOSException e) {
             /* Non-blocking accept() throws a SocketAcceptException on failure to connect
@@ -124,6 +110,8 @@ void listen(Tid mainThread) {
 }
 
 void clientHandler(Tid listenThread, shared(Socket) sock) {
+    clients++;
+    if(verbose) writeln("Adding client. No. clients: ", clients);
     auto server = new Server;
     server.attachControlSocket(sock);
 
@@ -152,6 +140,8 @@ void clientHandler(Tid listenThread, shared(Socket) sock) {
     server.close();
     send(listenThread, thisTid);
     if(verbose) writeln("Client thread ending");
+    clients--;
+    writeln("Removing client. No. clients: ", clients);
 }
 
 class Server : NFT {
