@@ -56,8 +56,8 @@ void main(string[] args) {
     if(verbose) writeln("Main thread ending...");
 }
 
-shared(Socket)[] socks;
 void listen(Tid mainThread) {
+    Tid[] clients;
     Socket listener = new TcpSocket;
 
     //set listener non-blocking so that this thread can receive messages
@@ -82,12 +82,12 @@ void listen(Tid mainThread) {
     while(run) {
         try {
             receiveTimeout(dur!"msecs"(100), //this blocks--stopping accept from using too many cycles
-                (Tid thread, shared(Socket) sock) {
+                (Tid thread) {
                     if(thread != mainThread) {
-                        foreach(i,s; socks) {
-                            if(s == sock) {
-                                socks = socks[0..i] ~ socks[i+1..$];
-                                if(verbose) writeln("Removing socket. No. clients: ", socks.length);
+                        foreach(i,t; clients) {
+                            if(t == thread) {
+                                clients = clients[0..i] ~ clients[i+1..$];
+                                if(verbose) writeln("Removing client. No. clients: ", clients.length);
                                 break;
                             }
                         }
@@ -104,10 +104,9 @@ void listen(Tid mainThread) {
             );
             auto sock = listener.accept();
             version(Windows) sock.blocking = true;
-            socks ~= cast(shared) sock;
-            spawn(&clientHandler, thisTid, socks[$-1]);
+            clients ~= spawn(&clientHandler, thisTid, cast(shared) sock);
             if(verbose) {
-                writeln("Adding socket. No. clients: ", socks.length);
+                writeln("Adding client. No. clients: ", clients.length);
                 writeln(wait);
             }
         }
@@ -124,7 +123,7 @@ void listen(Tid mainThread) {
     if(verbose) writeln("Listener thread ending...");
 }
 
-void clientHandler(Tid sockHand, shared(Socket) sock) {
+void clientHandler(Tid listenThread, shared(Socket) sock) {
     auto server = new Server;
     server.attachControlSocket(sock);
 
@@ -151,7 +150,7 @@ void clientHandler(Tid sockHand, shared(Socket) sock) {
         }
     }
     server.close();
-    send(sockHand, thisTid, sock);
+    send(listenThread, thisTid);
     if(verbose) writeln("Client thread ending");
 }
 
