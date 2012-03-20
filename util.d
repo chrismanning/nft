@@ -643,6 +643,11 @@ private:
         return s;
     }
 
+    private void sendEx(Exception e) {
+        stderr.writeln(e.msg);
+        replyBuf.insertBack(Reply(e.msg, ReplyType.ERROR));
+    }
+
     //server to client transfer
     bool cpfr(string arg) {
         auto x = replyBuf.length;
@@ -671,9 +676,16 @@ private:
                     sendFile(f);
                     reply = new Reply("File successfully sent from server");
                 }
+                catch(NetworkErrorException e) {
+                    sendEx(e);
+                    throw e;
+                }
+                catch(DisconnectException e) {
+                    sendEx(e);
+                    throw e;
+                }
                 catch(Exception e) {
-                    stderr.writeln(e.msg);
-                    reply = new Reply(e.msg, ReplyType.ERROR);
+                    sendEx(e);
                 }
                 finally {
                     if(reply) {
@@ -721,9 +733,16 @@ private:
                 receiveFile(f, bigEndianToNative!ulong(tmp));
                 reply = new Reply("File successfully received at server");
             }
+            catch(NetworkErrorException e) {
+                sendEx(e);
+                throw e;
+            }
+            catch(DisconnectException e) {
+                sendEx(e);
+                throw e;
+            }
             catch(Exception e) {
-                stderr.writeln(e.msg);
-                reply = new Reply(e.msg, ReplyType.ERROR);
+                sendEx(e);
             }
             finally {
                 if(reply) {
