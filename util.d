@@ -695,7 +695,7 @@ private:
         auto x = replyBuf.length;
         Reply * reply;
         if(arg.length) {
-            auto filename = baseName(arg);
+            auto filename = buildNormalizedPath(dir, baseName(arg));
             try {
                 auto sock = this.openDataConnection();
                 auto p = sock.localAddress().toPortString();

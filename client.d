@@ -169,7 +169,6 @@ if(direction == "up" || direction == "down") {
                 ubyte[2] t1 = ds.reply[0..2];
                 auto port = bigEndianToNative!ushort(t1);
                 ubyte[8] t2 = ds.reply[2..10];
-                auto fileSize = bigEndianToNative!ulong(t2);
                 client.connectDataConnection(new InternetAddress(server, port));
                 client.sendMsg(Reply(nativeToBigEndian(getSize(cmd.arg)),ReplyType.DATA_SETUP));
                 auto f = File(cmd.arg, "rb");
