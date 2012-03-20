@@ -644,7 +644,6 @@ private:
     }
 
     private void sendEx(Exception e) {
-        stderr.writeln(e.msg);
         replyBuf.insertBack(Reply(e.msg, ReplyType.ERROR));
     }
 
@@ -685,6 +684,7 @@ private:
                     throw e;
                 }
                 catch(Exception e) {
+                    stderr.writeln(e.msg);
                     sendEx(e);
                 }
                 finally {
@@ -742,6 +742,7 @@ private:
                 throw e;
             }
             catch(Exception e) {
+                stderr.writeln(e.msg);
                 sendEx(e);
             }
             finally {
