@@ -5,6 +5,8 @@
 \usepackage{biblatex}
 \usepackage{array}
 \bibliography{rfc,misc}
+\usepackage{setspace}
+\onehalfspace
 
 %opening
 \title{CTEC3604 -- Multi-service Networks\\
@@ -22,6 +24,7 @@ Network File Transfer Application}
 \section{Introduction}
 
 The aim of this project is to create an application which utilises TCP to transfer files over a network. The application is required to use Berkeley sockets and a client-server architecture.
+
 
 \section{Similar Applications}
 
@@ -62,9 +65,6 @@ The following requirements were realised from determining which of the above exi
  \item Maintain each client in its own thread.
 \end{itemize}
 
-\section{Implementation}
-
-Both the server and client were implemented using the D programming language \cite{dlang} using the standard library with no external libraries. Version 2.058 of the compiler, runtime and standard library was used throughout the implementation of this project.
 
 \section{Testing}
 
@@ -116,11 +116,22 @@ The following messages are produced by the server instance during test number 7,
  \item [Waiting for command...] The call to receive returns 0. A DisconnectException is thrown based on this error code.
  \item [192.168.0.3:42481 disconnected] DisconnectException is caught and handled, printing its message.
  \item [Client thread ending] Client thread safely ending.
- \item [Removing socket. No. clients: 0] Client control socket removed and the client count is updated.
+ \item [Removing client. No. clients: 0] Client thread removed and the client count is updated.
 \end{description}
 
 
 \section{Evaluation}
+
+Both the server and client were implemented using the D programming language \cite{dlang} using the standard library with no external libraries. Version 2.058 of the compiler, runtime and standard library was used throughout the implementation of this project.
+
+The code for this project has been split into three parts, or modules: \textit{client}, \textit{server} and \textit{util}. The \textit{util} module contains all functionality common to both the client and the server, and also some usage specific code. This was done to reduce code duplication and also so that the main logic of \textit{client} and \textit{server} was kept to a minimum in an attempt to increase their readability and ease understanding.
+
+The server has successfully utilised a multi-threaded architecture thanks to the technique of message passing employed by the \textit{std.concurrency} module (\textit{std.} prefix refers to the D standard library). This is made very easy and safe by D as it uses thread-local storage by default, limiting data sharing to explicit and controlled operations. To take advantage of this \textit{server} was created in a modular fashion: there is the main thread, the listener thread, and a thread for each connected client.
+
+Sockets are, by default on POSIX compliant systems, blocking. This is problematic, as if the sockets block then there is no way to receive messages from other threads. The solution to this problem is to use non-blocking sockets in combination with the blocking \textit{receiveTimeout} function from \textit{std.concurrency}, though this is only partially implemented in the project, for example for the listening functionality. What this means is that if the main thread ends, it will gracefully end the listener thread, but the client threads will remain running until the clients close their connections. This is less than ideal and would be improved in potential future versions.
+
+
+
 
 \printbibliography
 \end{document}
