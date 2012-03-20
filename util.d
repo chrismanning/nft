@@ -596,12 +596,13 @@ private:
     bool rm(string arg) {
         auto x = replyBuf.length;
         if(arg.length) {
+            auto name = absolutePath(strip(arg), dir);
             try {
-                if(arg.isDir)
-                    arg.rmdir();
-                else if(arg.isFile)
-                    arg.remove();
-                replyBuf.insertBack(Reply("Removed " ~ arg, ReplyType.STRING));
+                if(name.isDir)
+                    name.rmdir();
+                else if(name.isFile)
+                    name.remove();
+                replyBuf.insertBack(Reply("Removed " ~ name, ReplyType.STRING));
             }
             catch(FileException e) {
                 replyBuf.insertBack(Reply(e.msg, ReplyType.ERROR));
@@ -613,9 +614,10 @@ private:
     bool mkdir_(string arg) {
         auto x = replyBuf.length;
         if(arg.length) {
+            auto path = absolutePath(strip(arg), dir);
             try {
-                mkdir(arg);
-                replyBuf.insertBack(Reply("Created " ~ arg, ReplyType.STRING));
+                mkdir(path);
+                replyBuf.insertBack(Reply("Created " ~ path, ReplyType.STRING));
             }
             catch(FileException e) {
                 stderr.writeln(e.msg);
