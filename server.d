@@ -76,12 +76,22 @@ void listen(Tid mainThread) {
 
     listener.listen(10);
 
+    auto socks = new SocketSet;
+
     auto wait = "Waiting for client to connect...";
     if(verbose) writeln(wait);
     bool run = true;
     while(run) {
         try {
-            receiveTimeout(dur!"msecs"(100), //this blocks--stopping accept from using too many cycles
+            socks.reset();
+            socks.add(listener);
+            if(Socket.select(socks,null,null,dur!"msecs"(100)) > 0) {
+                auto sock = listener.accept();
+                version(Windows) sock.blocking = true;
+                spawn(&clientHandler, thisTid, cast(shared) sock);
+                if(verbose) writeln(wait);
+            }
+            receiveTimeout(dur!"usecs"(1),
                 (OwnerTerminated e) {
                     //stop doing stuff when main thread ends
                     run = false;
@@ -91,10 +101,6 @@ void listen(Tid mainThread) {
                     //this stops the message buffer from filling up
                 }
             );
-            auto sock = listener.accept();
-            version(Windows) sock.blocking = true;
-            spawn(&clientHandler, thisTid, cast(shared) sock);
-            if(verbose) writeln(wait);
         }
         catch(SocketOSException e) {
             /* Non-blocking accept() throws a SocketAcceptException on failure to connect
@@ -115,15 +121,31 @@ void clientHandler(Tid listenThread, shared(Socket) sock) {
     auto server = new Server;
     server.attachControlSocket(sock);
 
+    auto socks = new SocketSet;
+
     bool run = true;
     if(verbose) writefln("Connection from %s established", to!string(server.remoteAddress()));
     //send welcome message
     server.control.send(cast(ubyte[]) ID ~ cast(const(void)[]) Command("WELCOME"));
     while(server.status && run) {
         if(verbose) writeln("Waiting for command...");
+        if(server.ownerEnd() || server.errorCheck(server.control)) {
+            goto end;
+        }
         try {
-            auto cmd = server.receiveMsg!Command();
-            if(verbose) writefln("Command %s received",cmd.cmd);
+            Command cmd;
+            while(true) {
+                socks.add(server.control);
+                if(Socket.select(socks,null,null,dur!"msecs"(100)) > 0) {
+                    cmd = server.receiveMsg!Command();
+                    if(verbose) writefln("Command %s received",cmd.cmd);
+                    socks.reset();
+                    break;
+                }
+                if(server.ownerEnd()) {
+                    goto end;
+                }
+            }
             auto reply = server.interpreterCommand(cmd);
             if(!server.status) break;
             if(reply.length > int.sizeof+2) {
@@ -137,6 +159,7 @@ void clientHandler(Tid listenThread, shared(Socket) sock) {
             break;
         }
     }
+end:
     server.close();
     send(listenThread, thisTid);
     if(verbose) writeln("Client thread ending");

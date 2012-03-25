@@ -18,7 +18,8 @@ std.outbuffer,
 std.regex,
 std.datetime,
 std.format,
-std.range
+std.range,
+std.concurrency
 ;
 version(Posix) import core.stdc.config;
 version(Windows) import core.sys.windows.windows;
@@ -41,10 +42,6 @@ enum ID = "NFTX";
 class DisconnectException : Exception {
     this(Address raddr) {
         super(to!string(raddr) ~ " disconnected");
-    }
-    this(Socket rsock) {
-        super(to!string(rsock.remoteAddress()) ~ " disconnected");
-        rsock.close();
     }
 }
 
@@ -249,10 +246,11 @@ public:
 
     void attachControlSocket(Socket sock) {
         control = sock;
-        socks.add(control);
+        remAddr = sock.remoteAddress();
     }
     void attachControlSocket(shared(Socket) sock) {
         control = cast(Socket)sock;
+        remAddr = control.remoteAddress();
     }
 
     void close() {
@@ -286,6 +284,30 @@ public:
         }
     }
 
+    bool errorCheck(Socket[] socks ...) {
+        auto set = new SocketSet;
+        foreach(sock; socks) {
+            set.add(sock);
+        }
+        if(Socket.select(null,null,set,0) > 0) {
+            return true;
+        }
+        return false;
+    }
+
+    bool ownerEnd() {
+        bool lstat;
+        receiveTimeout(dur!"usecs"(1),
+            (OwnerTerminated e) {
+                lstat = true;
+            },
+            (Variant any) {
+                //this stops the message buffer from filling up
+            }
+        );
+        return lstat;
+    }
+
     void sendFile(ref File file, bool progress = false) {
         if(dataSock.isAlive()) {
             StopWatch timer;
@@ -294,11 +316,16 @@ public:
             ulong bytesSent;
             foreach(ubyte[] buf; file.byChunk(BUFSIZE)) {
             retry:
+                if(ownerEnd() || errorCheck(control, dataSock)) {
+                    file.close();
+                    status = false;
+                    return;
+                }
                 auto bytes = dataSock.send(buf);
                 if(bytes == Socket.ERROR)
                     throw new NetworkErrorException;
                 else if(bytes == 0)
-                    throw new DisconnectException(dataSock);
+                    throw new DisconnectException(remAddr);
                 else if(bytes == buf.length) {
                     bytesSent += bytes;
                     if(progress) {
@@ -332,9 +359,14 @@ public:
             ubyte[BUFSIZE] buf;
             socks.reset();
             while(bytesReceived < size) {
+                if(ownerEnd() || errorCheck(control, dataSock)) {
+                    file.close();
+                    status = false;
+                    return;
+                }
                 socks.add(control);
                 socks.add(dataSock);
-                Socket.select(socks, null, null, dur!"seconds"(5));
+                Socket.select(socks, null, null, dur!"msecs"(100));
                 if(socks.isSet(control)) {
                     Reply r = receiveMsg!Reply();
                     if(r.rt == ReplyType.ERROR) {
@@ -356,7 +388,7 @@ public:
                         file.rawWrite(buf[0..bytes]);
                     }
                     else if(bytes == 0)
-                        throw new DisconnectException(dataSock);
+                        throw new DisconnectException(remAddr);
                     else if(bytes == Socket.ERROR)
                         throw new NetworkErrorException;
                     else
@@ -385,7 +417,7 @@ public:
             return;
         }
         else if(bytes == 0)
-            throw new DisconnectException(control);
+            throw new DisconnectException(remAddr);
         else if(bytes == Socket.ERROR)
             throw new NetworkErrorException;
         else
@@ -403,7 +435,7 @@ public:
         auto bytes = control.receive(buf_);
 
         if(bytes == 0) {
-            throw new DisconnectException(control);
+            throw new DisconnectException(remAddr);
         }
         else if(bytes == Socket.ERROR) {
             throw new NetworkErrorException;
@@ -454,6 +486,7 @@ protected:
     alias void delegate(string arg) localCmd;
     cmd[string] commands;
     localCmd[string] localCommands;
+    Address remAddr;
     Socket control;
     Socket dataSock;
     SocketSet socks;
