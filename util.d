@@ -199,25 +199,25 @@ static void lsPrettyPrint(T)(T entries_) if(is(T == NetDirEntry[]) || is(T == Di
         }
         string name;
         ubyte n;
-        version(Posix) {
-            if(e.isDir) {
+        version(Posix) {//colours
+            if(e.isDir) {//blue directories
                 name = "\33[01;34m" ~ e.name;
             }
             else {
-                if(e.attributes & octal!100) {
+                if(e.attributes & octal!100) {//green executables
                     name = "\33[01;32m" ~ e.name;
                 }
                 else {
-                    name = "\33[00;37m" ~ e.name;
+                    name = "\33[00;m" ~ e.name;
                 }
             }
-            n = 8;
+            n = cast(ubyte) (name.length - e.name.length);
         }
         else name = e.name;
         formattedWrite(app,"%-0*s%s", width + n, name, pad);
     }
     writeln(strip(app.data));
-    version(Posix) write("\33[00;37m");
+    version(Posix) write("\33[00;m");
 }
 
 abstract class NFT {
