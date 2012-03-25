@@ -8,7 +8,7 @@ ifeq ($(OS), Windows_NT)
 else
 	OBJ = o
 	EXE =
-	RM = rm
+	RM = rm -f
 endif
 
 all: server client
