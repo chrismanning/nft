@@ -85,7 +85,7 @@ void listen(Tid mainThread) {
         try {
             socks.reset();
             socks.add(listener);
-            if(Socket.select(socks,null,null,dur!"msecs"(100)) > 0) {
+            if(Socket.select(socks,null,null,dur!"msecs"(10)) > 0) {
                 auto sock = listener.accept();
                 version(Windows) sock.blocking = true;
                 spawn(&clientHandler, thisTid, cast(shared) sock);
@@ -136,7 +136,7 @@ void clientHandler(Tid listenThread, shared(Socket) sock) {
             Command cmd;
             while(true) {
                 socks.add(server.control);
-                if(Socket.select(socks,null,null,dur!"msecs"(100)) > 0) {
+                if(Socket.select(socks,null,null,dur!"msecs"(10)) > 0) {
                     cmd = server.receiveMsg!Command();
                     if(verbose) writefln("Command %s received",cmd.cmd);
                     socks.reset();
