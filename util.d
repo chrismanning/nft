@@ -122,12 +122,9 @@ version(Posix) {
         enum TIOCGWINSZ = 0x5413;
     }
     auto getTermSize() {
-        Dimensions dims;
         winsize w;
         ioctl(0, TIOCGWINSZ, &w);
-        dims.w = w.ws_col;
-        dims.h = w.ws_row;
-        return dims;
+        return Dimensions(w.ws_col, w.ws_row);
     }
 }
 version(Windows) {
