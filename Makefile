@@ -1,5 +1,5 @@
 DMD ?= dmd
-FLAGS = -gc -inline
+FLAGS = -gc -inline -O -release
 
 ifeq ($(OS), Windows_NT)
 	OBJ = obj
