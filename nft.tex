@@ -23,7 +23,7 @@ Network File Transfer Application}
 
 \section{Introduction}
 
-The aim of this project is to create an application which utilises TCP to transfer files over a network. The application is required to use Berkeley sockets and a client-server architecture.
+The aim of this project is to create an application which utilises TCP to transfer files over a network. The application is required to use Berkeley sockets and a client-server architecture allowing multiple client connections.
 
 
 \section{Similar Applications}
@@ -32,11 +32,11 @@ This section contains the evaluations of similar applications or protocols in an
 
 \subsection{File Transfer Protocol (FTP)}
 
-\textit{FTP} \cite{rfc959} is a protocol specifically designed for the transfer of files using TCP. It uses a client-server architecture. For each client connected to the server, there is a control connection which is initiated by connecting to a pre-specified port (default 21). This control connection is the means by which commands are send from the client to the server, and replies are sent from the server to a client. This is achieved using the \textit{Telnet} protocol \cite{rfc854}. Each client is usually maintained in a separate thread.
+\textit{FTP} \cite{rfc959} is a protocol specifically designed for the transfer of files using TCP. It uses a client-server architecture, with many clients being allowed to connect to a server. For each client connected to the server, there is a control connection which is initiated by connecting to a pre-specified port (default 21). This control connection is the means by which commands are send from the client to the server, and replies are sent from the server to a client. This is achieved using the \textit{Telnet} protocol \cite{rfc854}.
 
 When a command sent by the client requires data in reply, another connection is established specifically for data transfers, from the data port (default 20). Because of it using multiple ports, \textit{FTP} is known as an out-of-band protocol. This data can be text or binary data and can be sent in blocks, as a stream or compressed.
 
-\textit{FTP} requires clients to login with a username and password, though the username may be 'anonymous' if the server is configured to allow anonymous access. The client then has the same access and permissions as that of the user they are logged in. The transferred data, commands and replies themselves are not encrypted in any way.
+\textit{FTP} requires clients to login with a username and password, though the username may be `anonymous' if the server is configured to allow anonymous access. The client then has the same access and permissions as that of the user they are logged in. The transferred data, commands and replies themselves are not encrypted in any way.
 
 The client can provide a shell-like command line interface with which the user enters commands and text replies are shown, or a graphical user interface (GUI). Some commands are as follows: LIST (list directory entries), CWD (change working directory), DELE (delete file), RETR (transfer file), et al. These commands allow the user to browse the remote file system so that the available files can become known.
 
@@ -58,11 +58,11 @@ The following requirements were realised from determining which of the above exi
 
 \begin{itemize}
  \item Client-server architecture.
+ \item Allow multiple clients to connect to a single server simultaneously.
  \item Shell-like user interface.
- \item Ability to browse the file system client and server-side, i.e.\ change working directory, list files, get file size, etc.
+ \item Ability to browse the file system client and server-side, i.e.\ change working directory, list directory contents, get file size, etc.
  \item Transfer files from the server to the client, and vice versa.
  \item Separate control connection and data connection. Use the data connection for binary data only; the control connection can accept textual replies.
- \item Maintain each client in its own thread.
 \end{itemize}
 
 
@@ -111,30 +111,39 @@ $C$ denotes the client, $S$ denotes the server, $\rightarrow$ or $\leftarrow$ de
 \end{tabular}\\
 
 The following messages are produced by the server instance during test number 7, accompanied by some short explanations.\begin{description}
- \item [A network error occurred] Transfer stops.
- \item [Sending reply...] Tries to send the last reply in the buffer. No exception is thrown.
- \item [Waiting for command...] The call to receive returns 0. A DisconnectException is thrown based on this error code.
- \item [192.168.0.3:42481 disconnected] DisconnectException is caught and handled, printing its message.
+ \item [A network error occurred] \textit{sendFile} throws a NetworkErrorException with this message. This exception is caught in the \textit{clientHandler} function which prints its message, then ends this specific server instance.
  \item [Client thread ending] Client thread safely ending.
- \item [Removing client. No. clients: 0] Client thread removed and the client count is updated.
+ \item [Removing client. No. clients: 0] Client thread removed and the client count is updated. The server is still operating as normal and can accept new client connections.
 \end{description}
 
 
 \section{Evaluation}
 
-Both the server and client were implemented using the D programming language \cite{dlang} using the standard library with no external libraries. Version 2.058 of the compiler, runtime and standard library was used throughout the implementation of this project.
+Both the server and client were implemented using the D programming language \cite{dlang} with the standard library and no external libraries. Version 2.058 of the compiler, runtime and standard library was used throughout the implementation of this project.
 
 The code for this project has been split into three parts, or modules: \textit{client}, \textit{server} and \textit{util}. The \textit{util} module contains all functionality common to both the client and the server, and also some usage specific code. This was done to reduce code duplication and also so that the main logic of \textit{client} and \textit{server} was kept to a minimum in an attempt to increase their readability and ease understanding.
 
-The server has successfully utilised a multi-threaded architecture thanks to the technique of message passing employed by the \textit{std.concurrency} module (\textit{std.} prefix refers to the D standard library). This is made very easy and safe by D as it uses thread-local storage by default, limiting data sharing to explicit and controlled operations. To take advantage of this, \textit{server} was created in a modular fashion: there is the main thread, the listener thread, and a thread for each connected client. The functions for sending and receiving messages are: \textit{send}, \textit{receive}, \textit{receiveOnly} and \textit{receiveTimeout}.
+The server has successfully enabled the simultaneous connection of multiple clients by utilising a multi-threaded architecture thanks to the technique of message passing employed by the \textit{std.concurrency} module (\textit{std.} prefix refers to the D standard library). This is made very easy and safe by D as it uses thread-local storage by default, limiting data sharing to explicit and controlled operations. To take advantage of this, \textit{server} was created in a modular fashion: there is the main thread, the listener thread, and a thread for each connected client. These threads communicate using the following functions: \textit{send}, \textit{receive}, \textit{receiveOnly} and \textit{receiveTimeout}. These are not to be confused with socket operations, which are methods of the \textit{Socket} class.
 
 Socket operations are, by default on POSIX compliant systems, blocking, meaning the operation stalls its thread until it is completed or it failed. This is problematic, as if the sockets block then there is no way to receive messages from other threads, meaning all network operations will need to finish before all threads can end.
-A solution to this problem is to use I/O multiplexing with the \textit{select} system function with a short (10ms) time out value, in combination with a call to \textit{receiveTimeout} with a 1$\mu s$ time out. The time out value for \textit{select} was chosen due to being an insignificant period of time, though long enough that not too many CPU cycles are used. \textit{receiveTimeout}'s time out value was chosen to be so small so that it wouldn't block. This is a better solution than just adding a time out value to a blocking socket as \textit{select} polls multiple sockets until one or more is ready. This has allowed for receiving errors during a file transfer, for example, an 
-operation that couldn't be accomplished previously.
+A solution to this problem is to use I/O multiplexing with the \textit{select} system function with a short (10$ms$) time out value, in combination with a call to \textit{receiveTimeout} with a 1$\mu s$ time out. The time out value for \textit{select} was chosen due to being an insignificant period of time, though long enough that not too many CPU cycles are used. \textit{receiveTimeout}'s time out value was chosen to be so small so that it wouldn't block. This is a better solution than just adding a time out value to a blocking socket as \textit{select} polls multiple sockets until one or more is ready. This has allowed for receiving errors during a file transfer, for example, an operation that couldn't be accomplished previously without blocking one or the other operation.
 
 \textit{FTP}'s method of using separate sockets for control and data has worked well for this project, though it is perhaps an unnecessary overhead. Protocols such as \textit{HTTP} do not use this method and cope well with many situations. A server without this structure would mean that any transfers, whether file data, text, errors, etc.\ would all use the same connection. For implementing this, all data would have to be contained in a common structure for transportation so that the message type could be determined and processed appropriately. This would be a great improvement for a future revision of this project.
 
-The shell-like user interface 
+The shell-like interface provides a highly usable user experience, though there are some limitations. The implementation simply consists of a loop, with a call to \textit{readln} at its beginning. While this method has merit in its simplicity, it does not include any key handling functionality. This means that the user cannot use the arrow keys for doing things such as moving the cursor to edit a command, or selecting a previously entered command. It should be noted however, that Windows integrates these features in its \textit{cmd} and \textit{PowerShell} applications.
+On a POSIX compliant system, the interface is able to produce colours using ANSI colour codes. This is used for differentiating between files and directories when listing the contents of a remote or local directory. It is also possible for this to be implemented on Windows based systems using the \textit{SetConsoleTextAttribute} function; a potential future improvement.
+Another feature of the interface is the presence of progress bars, indicating progress of a file transfer to the client user. This is implemented using ANSI escape codes on POSIX systems and carriage return on Windows. While this is a nice feature, it currently doesn't show the current speed of transfer, or an estimated finishing time, only the overall average speed and time taken values are printed on completion. This is a desirable feature and could improve usability in a future version.
+
+The commands implemented in this project work correctly for both remote and local usage, where appropriate. The local commands are the same as the remote, but prefixed with \textit{loc}. The commands currently included are: \textit{pwd}, \textit{cd}, \textit{ls}, \textit{du}, \textit{mkdir}, \textit{rm}, \textit{cptr} and \textit{cpfr}. These commands provide basic functionality for browsing and manipulating the local and remote file systems, though others could be included, such as a local copy and move.
+
+There is also a major security risk in this projects implementation, due to no awareness of users. Currently the connected client has all the permissions of the user the server is being ran as, which means there is the potential for the client to accomplish things that they shouldn't, especially if the server is ran as \textit{root}. This issue coupled with the unencrypted data transmission could allow remote intrusions to the server. This could be improved by forcing clients to login as a user on the server or, like \textit{FTP}, anonymously, and the server should operate as a non-interactive user. Encryption of traffic could also be utilised through libraries such as OpenSSL or OpenSSH. Both of these features were considered beyond the scope of this project.
+
+
+\section{Conclusion}
+
+This project has succeeded in implementing the required functionality, though it has several flaws in security and usability, as noted above, along with potential improvements to help combat these flaws.
+
+One thing that hasn't been mentioned is that the server does not function properly on Windows systems. The exact cause of this is unknown, though the problem manifests as an indefinite stall when opening files for reading or writing. It is likely that the problem is caused by the Windows implementation of \textit{std.concurrency} as this functionality works as intended in the single-threaded client, but that is yet to be determined.
 
 
 \printbibliography
